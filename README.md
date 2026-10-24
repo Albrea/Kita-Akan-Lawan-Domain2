@@ -60,7 +60,7 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 - **Roles:** Owner, Manager and Staff. Permissions are checked on the server, not only in the UI.
 - **Outage plan:** offline stock entry that syncs later, a backup copy, and paper/WhatsApp catch-up entry.
 - **Six demo scenarios:** mixed, growing, slow season, festive rush, viral product and overstocked, to show how the AI reacts.
-- **Responsive:** a sidebar on desktop, a drawer menu and stacked cards on phones, plus light and dark mode.
+- **Responsive:** a sidebar on desktop, a drawer menu and stacked cards on phones. Making the system available on any type of devices.
 
 ### Tech Stack
 
