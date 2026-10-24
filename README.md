@@ -25,7 +25,7 @@
 
 | Resource           | Link                                       |
 | ------------------ | ------------------------------------------ |
-| GitHub Repository  | https://github.com/AlfredJason78/test-file |
+| GitHub Repository  | https://github.com/Albrea/Kita-Akan-Lawan-StockNow.git |
 | Live Demo (Replit) | https://stocknow.replit.app/           |
 | Slide Deck         | https://www.canva.com/design/DAHYz1By8qw/zd4gIyf5oAqTDNPfNBCvxQ/edit                                |
 | Demo Video         | _Add link_                                 |
@@ -143,7 +143,7 @@ Orbyte Directory, eLeave, notifications and Payment are shown as integration poi
 
 ## How to Run
 
-StockNow runs **without any keys**: it uses the built-in demo shop and template text. Add Supabase to keep data permanently, and Gemini for AI-written text.
+StockNow runs using the built-in demo shop. Add Supabase to keep data permanently, and Gemini for AI-written text.
 
 ### Option 1: Run on Replit (recommended)
 
@@ -162,7 +162,7 @@ Requires **Node.js 20 or newer**.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/Albrea/Kita-Akan-Lawan-Domain2.git stocknow
+git clone https://github.com/Albrea/Kita-Akan-Lawan-StockNow.git stocknow
 cd stocknow
 
 # 2. Install dependencies
