@@ -1,12 +1,13 @@
-# Replit runs `npm run dev` for the editor preview and builds + starts the app for Deployments.
-modules = ["nodejs-22"]
+modules = ["nodejs-20", "web"]
 run = "npm install && npm run dev"
-entrypoint = "src/app/page.js"
+
+[nix]
+channel = "stable-24_05"
 
 [deployment]
 deploymentTarget = "autoscale"
-build = ["sh", "-c", "npm ci && npm run build"]
-run = ["sh", "-c", "npm run start"]
+build = ["sh", "-c", "npm install && npm run build"]
+run = ["sh", "-c", "npx next start -H 0.0.0.0 -p 3000"]
 
 [[ports]]
 localPort = 3000
