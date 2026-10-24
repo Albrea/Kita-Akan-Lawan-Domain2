@@ -5,7 +5,7 @@
 <p align="center">
   <img src="docs/screenshots/desktop-dashboard.png" alt="StockNow dashboard on desktop" width="68%">
   &nbsp;
-  <img src="docs/screenshots/phone-dashboard.png" alt="StockNow dashboard on a phone (dark mode)" width="25%">
+  <img src="docs/screenshots/desktop-ai-restock.png" alt="StockNow dashboard on desktop" width="68%">
 </p>
 
 ---
@@ -26,8 +26,8 @@
 | Resource           | Link                                       |
 | ------------------ | ------------------------------------------ |
 | GitHub Repository  | https://github.com/AlfredJason78/test-file |
-| Live Demo (Replit) | _Add the Replit deployment link_           |
-| Slide Deck         | _Add link_                                 |
+| Live Demo (Replit) | https://stocknow.replit.app/           |
+| Slide Deck         | https://www.canva.com/design/DAHYz1By8qw/zd4gIyf5oAqTDNPfNBCvxQ/edit                                |
 | Demo Video         | _Add link_                                 |
 
 ---
@@ -162,7 +162,7 @@ Requires **Node.js 20 or newer**.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/AlfredJason78/test-file.git stocknow
+git clone https://github.com/Albrea/Kita-Akan-Lawan-Domain2.git stocknow
 cd stocknow
 
 # 2. Install dependencies
@@ -225,7 +225,7 @@ There is no login page. Use the **account switcher** at the bottom of the sideba
 
 | Line                                 | What it does                                                                      |
 | ------------------------------------ | --------------------------------------------------------------------------------- |
-| `modules = ["nodejs-22"]`            | Gives the Repl Node.js 22                                                         |
+| `modules = ["nodejs-20", "web"]`            | Gives the Repl Node.js 20                                                         |
 | `run = "npm install && npm run dev"` | What the **Run** button does: install packages, start the dev server on port 3000 |
 | `[deployment] build`                 | What **Deploy** runs first: `npm ci && npm run build`                             |
 | `[deployment] run`                   | How the deployed app starts: `npm run start`                                      |
@@ -254,11 +254,12 @@ npm ls next react react-dom lucide-react @supabase/supabase-js vitest
 ---
 
 ## How We Use Replit _(Required)_
-
+- **First Phase:** Used Replit for initial version of prototype and brainstorming before switching to another AI model to make the finalize version.
 - **Hosting:** The app is deployed with Replit Deployments at the Live Demo link above. `.replit` defines the run command for development (`npm run dev`) and the build/start commands for the deployment.
 - **Secrets:** `GEMINI_API_KEY`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are stored in Replit Secrets, never in the code or the repository.
 
-📄 Proof of use: [`submission/SDC2026_KitaAkanLawan_Replit_POU.pdf`](submission/SDC2026_KitaAkanLawan_Replit_POU.pdf)
+📄 Proof of use: 
+[`submission/Replit Proof of Usage.pdf`]
 
 ---
 
@@ -280,7 +281,7 @@ npm ls next react react-dom lucide-react @supabase/supabase-js vitest
 | Name                     | Role                         | GitHub                                             |
 | ------------------------ | ---------------------------- | -------------------------------------------------- |
 | Alfred Jason Gustono     | Team Lead / Full Stack       | [@AlfredJason78](https://github.com/AlfredJason78) |
-| Bartolomeo Arcka Malta   | Full Stack / Pitch Presenter | [@Albread](https://github.com/Albread)             |
+| Bartolomeo Arcka Malta   | Full Stack / Pitch Presenter | [@Albrea](https://github.com/Albread)             |
 | Valent Budi Prayogo      | Lead Tester                  | [@PrayogoValent](https://github.com/PrayogoValent) |
 | Sternt Harbent Chang     | Documentation                | [@Sternt](https://github.com/Sternt)               |
 | Nicholas William Soesilo | Pitch Designer               | [@nikuniku06](https://github.com/nikuniku06)       |
@@ -290,11 +291,11 @@ npm ls next react react-dom lucide-react @supabase/supabase-js vitest
 ## Submission Checklist
 
 - [x] Team name, domain (Domain 2) and SDG track filled in
-- [ ] Slide deck link added
-- [ ] Demo video link added
-- [ ] Replit used, with proof of use in `submission/`
-- [x] Preliminary submission completed (`SDC2026_KitaAkanLawan_Preliminary.pdf`)
-- [x] Technology declaration completed (`SDC2026_KitaAkanLawan_TechDeclaration.pdf`)
+- [x] Slide deck link added
+- [x] Demo video link added
+- [x] Replit used, with proof of use in `submission/Replit Proof of Usage.pdf`
+- [x] Preliminary submission completed (`SDC 2026_Kita Akan Lawan_Preliminary.pdf`)
+- [x] Technology declaration completed (`SDC 2026_Kita Akan Lawan_TechDeclaration.pdf`)
 - [x] Submission files renamed with the team name
 - [x] "How to Run" steps verified
 - [x] No API keys or secrets committed to the repository
