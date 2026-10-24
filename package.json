@@ -1,0 +1,27 @@
+{
+  "name": "stocknow",
+  "version": "1.0.0",
+  "private": true,
+  "description": "StockNow: inventory with AI restock planning for small clothing shops, built for the Orbyte hub.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.0",
+    "lucide-react": "0.555.0",
+    "next": "15.5.28",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "vitest": "3.2.7"
+  }
+}
