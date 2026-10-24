@@ -23,12 +23,12 @@
 
 ## Links
 
-| Resource           | Link                                       |
-| ------------------ | ------------------------------------------ |
-| GitHub Repository  | https://github.com/Albrea/Kita-Akan-Lawan-StockNow.git |
-| Live Demo (Replit) | https://stocknow.replit.app/           |
-| Slide Deck         | https://www.canva.com/design/DAHYz1By8qw/zd4gIyf5oAqTDNPfNBCvxQ/edit                                |
-| Demo Video         | _Add link_                                 |
+| Resource           | Link                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| GitHub Repository  | https://github.com/Albrea/Kita-Akan-Lawan-StockNow.git                               |
+| Live Demo (Replit) | https://stocknow.replit.app/                                                         |
+| Slide Deck         | https://drive.google.com/drive/folders/1M0mmQvDCoiL1j6nfZfzmWxY7rzt96_LC?usp=sharing |
+| Demo Video         | https://youtu.be/BaryfPG26D4?si=Bjmmof0Aw0uzXqWQ                                     |
 
 ---
 
@@ -79,46 +79,72 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 
 ```
 .
-├── src/
-│   ├── app/
-│   │   ├── layout.js               # HTML shell, fonts, viewport
-│   │   ├── page.js                 # Renders the app
-│   │   ├── globals.css             # Design tokens (light/dark) and responsive layout
-│   │   └── api/
-│   │       ├── state/route.js      # GET the whole shop
-│   │       ├── action/route.js     # POST one action (stock in/out, approve, …)
-│   │       └── ai/
-│   │           ├── summary/route.js  # Gemini: plan summary
-│   │           └── message/route.js  # Gemini: supplier WhatsApp message
-│   ├── components/
-│   │   ├── App.jsx                 # State, API calls, offline mode, sidebar
-│   │   ├── Modals.jsx              # Forms, approvals, WhatsApp, Show calculation
-│   │   ├── ui.jsx                  # Icons, chips, selects, sparkline
-│   │   └── pages/                  # Dashboard, Products, Stock In/Out, Suppliers,
-│   │                               # AI Restock, Approvals, Activity Log, Team, Settings
-│   └── lib/
-│       ├── engine.js               # AI engine: forecast, plan, budget, backtest
-│       ├── actions.js              # Every change + permission checks (server and offline)
-│       ├── seed.js                 # Synthetic demo shop and 6 scenarios (the AI's sales data)
-│       ├── messages.js             # Supplier message templates
-│       ├── format.js               # Money, dates, helpers
-│       └── server/
-│           ├── store.js            # Supabase or in-memory storage, write lock
-│           ├── tables.js           # App fields ↔ Postgres columns
-│           ├── gemini.js           # Gemini call + number guard + fallback
-│           └── http.js
-├── supabase/schema.sql             # Tables, checks and row-level security (paste into Supabase)
-├── tests/                          # Engine, actions and storage tests
-├── docs/
-│   ├── architecture.png            # System block diagram
-│   └── screenshots/                # Desktop and phone screenshots
-├── submission/                     # Required submission documents
-├── .env.example                    # Environment variables
-├── .replit                         # Replit run and deployment configuration
-├── jsconfig.json                   # "@/…" import alias → src/
-├── LICENSE
-├── package.json
-└── README.md
+├── docs                                               # README images
+│   ├── screenshots                                    # App screenshots used in the README
+│   │   ├── desktop-ai-restock.png                     # AI Restock plan on desktop
+│   │   └── desktop-dashboard.png                      # Dashboard on desktop
+│   └── architecture.png                               # System architecture diagram
+├── src                                                # All app source code
+│   ├── app                                            # Next.js App Router (pages + API)
+│   │   ├── api                                        # Server API routes
+│   │   │   ├── action                                 # POST: every user action (stock in/out, approve…)
+│   │   │   │   └── route.js                           # Validates the action, saves it, returns new state
+│   │   │   ├── ai                                     # Gemini endpoints (wording only, never numbers)
+│   │   │   │   ├── message                            # Supplier WhatsApp message
+│   │   │   │   │   └── route.js                       # Gemini rewords the order message (template fallback)
+│   │   │   │   └── summary                            # AI restock plan summary
+│   │   │   │       └── route.js                       # Gemini explains the plan (template fallback)
+│   │   │   └── state                                  # GET: load all shop data
+│   │   │       └── route.js                           # Returns data + storage mode + Gemini status
+│   │   ├── globals.css                                # All styles, responsive desktop + phone
+│   │   ├── icon.svg                                   # Browser tab icon
+│   │   ├── layout.js                                  # Root HTML layout, font, metadata
+│   │   └── page.js                                    # Home page, renders <App />
+│   ├── components                                     # React UI (client side)
+│   │   ├── pages                                      # One file per sidebar page
+│   │   │   ├── ActivityLog.jsx                        # History of every action by people and AI
+│   │   │   ├── AiRestock.jsx                          # AI Restock Planner, accuracy check (main feature)
+│   │   │   ├── Approvals.jsx                          # Owner approves plans, creates supplier orders
+│   │   │   ├── Dashboard.jsx                          # Alerts, budget left, stock overview
+│   │   │   ├── Products.jsx                           # Product list, stock levels, sales trend
+│   │   │   ├── Settings.jsx                           # Budget, demo data switcher, access, outage test
+│   │   │   ├── StockIn.jsx                            # Receive supplier deliveries into stock
+│   │   │   ├── StockOut.jsx                           # Record sales and stock going out
+│   │   │   ├── Suppliers.jsx                          # Supplier list and their orders
+│   │   │   └── Team.jsx                               # Team & access, Orbyte connections (simulated)
+│   │   ├── App.jsx                                    # App shell: sidebar, account switcher, shared state
+│   │   ├── Modals.jsx                                 # Pop-up dialogs (forms, confirmations)
+│   │   └── ui.jsx                                     # Small shared UI parts: icons, chips, modal, sparkline
+│   └── lib                                            # Logic shared by UI and server
+│       ├── server                                     # Server-only code (never sent to the browser)
+│       │   ├── gemini.js                              # Calls Gemini API via fetch + number check + fallback
+│       │   ├── http.js                                # JSON response helper (keeps Infinity values)
+│       │   ├── store.js                               # Saves/loads data: Supabase, or memory if not set
+│       │   └── tables.js                              # Maps app fields to Supabase table columns
+│       ├── actions.js                                 # Rules for every action + role permissions
+│       ├── engine.js                                  # AI forecast, restock plan, budget, backtest, eLeave routing
+│       ├── format.js                                  # Money/date formatting, demo date (2026-10-23)
+│       ├── messages.js                                # Supplier WhatsApp message templates
+│       └── seed.js                                    # Synthetic demo data (6 shop scenarios)
+├── submission                                         # Hackathon submission documents
+│   ├── Replit Proof of Usage.pdf                      # Proof the app runs on Replit
+│   ├── SDC 2026_Kita Akan Lawan_Preliminary.pdf       # Preliminary proposal
+│   └── SDC 2026_Kita Akan Lawan_TechDeclaration.pdf   # Technology declaration
+├── supabase                                           # Database setup
+│   └── schema.sql                                     # Paste into Supabase SQL Editor: creates 11 tables
+├── tests                                              # Automated tests (Vitest)
+│   ├── actions.test.js                                # Tests action rules and permissions
+│   ├── engine.test.js                                 # Tests forecast and restock plan
+│   └── store.test.js                                  # Tests saving and loading data
+├── .env.local.example                                 # Template for secret keys (copy to .env.local)
+├── .gitignore                                         # Keeps .env, node_modules, .next off GitHub
+├── .replit                                            # Replit run and deploy settings
+├── LICENSE                                            # Apache-2.0 license
+├── README.md                                          # Project overview + how to run
+├── jsconfig.json                                      # Path alias: @/ = src/
+├── next.config.js                                     # Next.js settings
+├── package-lock.json                                  # Exact dependency versions (auto-generated)
+└── package.json                                       # Dependencies and npm scripts (dev, build, start, test)
 ```
 
 ### Architecture
@@ -225,7 +251,7 @@ There is no login page. Use the **account switcher** at the bottom of the sideba
 
 | Line                                 | What it does                                                                      |
 | ------------------------------------ | --------------------------------------------------------------------------------- |
-| `modules = ["nodejs-20", "web"]`            | Gives the Repl Node.js 20                                                         |
+| `modules = ["nodejs-20", "web"]`     | Gives the Repl Node.js 20                                                         |
 | `run = "npm install && npm run dev"` | What the **Run** button does: install packages, start the dev server on port 3000 |
 | `[deployment] build`                 | What **Deploy** runs first: `npm ci && npm run build`                             |
 | `[deployment] run`                   | How the deployed app starts: `npm run start`                                      |
@@ -254,11 +280,12 @@ npm ls next react react-dom lucide-react @supabase/supabase-js vitest
 ---
 
 ## How We Use Replit _(Required)_
+
 - **First Phase:** Used Replit for initial version of prototype and brainstorming before switching to another AI model to make the finalize version.
 - **Hosting:** The app is deployed with Replit Deployments at the Live Demo link above. `.replit` defines the run command for development (`npm run dev`) and the build/start commands for the deployment.
 - **Secrets:** `GEMINI_API_KEY`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are stored in Replit Secrets, never in the code or the repository.
 
-📄 Proof of use: 
+📄 Proof of use:
 [`submission/Replit Proof of Usage.pdf`]
 
 ---
@@ -281,7 +308,7 @@ npm ls next react react-dom lucide-react @supabase/supabase-js vitest
 | Name                     | Role                         | GitHub                                             |
 | ------------------------ | ---------------------------- | -------------------------------------------------- |
 | Alfred Jason Gustono     | Team Lead / Full Stack       | [@AlfredJason78](https://github.com/AlfredJason78) |
-| Bartolomeo Arcka Malta   | Full Stack / Pitch Presenter | [@Albrea](https://github.com/Albread)             |
+| Bartolomeo Arcka Malta   | Full Stack / Pitch Presenter | [@Albrea](https://github.com/Albread)              |
 | Valent Budi Prayogo      | Lead Tester                  | [@PrayogoValent](https://github.com/PrayogoValent) |
 | Sternt Harbent Chang     | Documentation                | [@Sternt](https://github.com/Sternt)               |
 | Nicholas William Soesilo | Pitch Designer               | [@nikuniku06](https://github.com/nikuniku06)       |
