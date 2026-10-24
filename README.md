@@ -261,10 +261,11 @@ There is no login page. Use the **account switcher** at the bottom of the sideba
 **Deploy to Replit, step by step.**
 
 1. Push this project to GitHub.
-2. Replit → **Create Repl → Import from GitHub** → choose the repository. Replit detects `.replit`.
+2. Replit → **Import → Choose 'GitHub'** → choose the repository. Replit detects `.replit`.
 3. **Tools → Secrets**: add `GEMINI_API_KEY`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (and `GEMINI_MODEL` if you want a different model).
-4. Press **Run** and check the Webview. Settings → Backup should say **Supabase connected**; the AI page should say **Written by Gemini**.
-5. Press **Deploy → Autoscale → Deploy**. Add the Secrets to the deployment too if Replit asks. Copy the `.replit.app` link into _Links_ above.
+4. Press **Publish** and check the Webview.
+5. Enter your project name and wait for the configurations.
+6. Click on the **url** and your project is already deployed.
 
 **Check the versions you are using.**
 
