@@ -1,0 +1,10 @@
+# Copy to .env.local (local) or add each line in Replit → Secrets. Never commit real keys.
+
+# Google Gemini: writes the plan summary and supplier messages. Leave empty to use the built-in templates.
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.8-flash
+
+# Supabase: permanent storage. Leave both empty to run on the built-in demo store (resets on restart).
+# Use the service_role key (Supabase → Project Settings → API). It stays on the server only.
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
