@@ -13,7 +13,10 @@ create table if not exists settings (
   plan_day        int not null default 23 check (plan_day between 1 and 28),
   scenario        text not null default 'mixed',
   po_seq          int not null default 32,
-  sales_months    jsonb not null default '[]'
+  sales_months    jsonb not null default '[]',
+  business_type   text not null default 'clothing',
+  business_years  int,
+  forecast_config jsonb  -- approved forecast settings (null = the business type's defaults), with who approved and the backtest
 );
 
 -- People come from Orbyte Directory; role = StockNow access (null = no access).
@@ -128,7 +131,7 @@ create table if not exists activity_logs (
 create table if not exists alerts (
   id          text primary key,
   created_at  text not null,
-  type        text not null check (type in ('PLAN', 'LOW')),
+  type        text not null check (type in ('PLAN', 'LOW', 'PAYMENT')),  -- PAYMENT: an Orbyte payment a person must check (po_id holds the payment id)
   product_id  text,
   po_id       text,
   is_open     boolean not null default true,
