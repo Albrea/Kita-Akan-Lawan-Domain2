@@ -349,3 +349,58 @@ export function sendBlock(d, r) {
   if (!r.t.buy.length) return "Nothing to buy in this plan.";
   return "";
 }
+
+
+/* Read-only audit trail for the existing accuracy metrics. Never fits on a held-out month. */
+
+export function explainAccuracy(d, cfg = configOf(d)) {
+  const monthLabels = (series) => d.settings.salesMonths.slice(-series.length);
+  const point = (p, series, k) => {
+    const history = series.slice(0, k);
+    const model = forecastFrom(history, cfg);
+    const actual = series[k], forecast = model.forecast;
+    const baseline = Math.round(history.slice(-3).reduce((a, b) => a + b, 0) / 3);
+    const labels = monthLabels(series);
+    return {
+      pid: p.id, name: p.name, short: p.short || p.name, testIndex: k,
+      month: labels[k] ?? "", historyMonths: labels.slice(0, k), history,
+      model, actual, forecast, diff: forecast - actual,
+      error: actual ? Math.abs(forecast - actual) / actual : 0,
+      baseline, baselineDiff: baseline - actual,
+      baselineError: actual ? Math.abs(baseline - actual) / actual : 0,
+      zeroActual: actual === 0,
+    };
+  };
+  const latestRows = backtest(d, cfg).map((row) => {
+    const series = salesOf(d, row.p.id);
+    return { ...point(row.p, series, series.length - 1), verdict: row.verdict };
+  });
+  const rollingRows = [], excludedZero = [], insufficient = [];
+  for (const p of d.products) {
+    const series = salesOf(d, p.id);
+    if (series.length < 4) {
+      insufficient.push({ pid: p.id, name: p.name, months: series.length });
+      continue;
+    }
+    for (let k = 3; k < series.length; k++) {
+      const row = point(p, series, k);
+      if (!series[k]) excludedZero.push(row);
+      else rollingRows.push(row);
+    }
+  }
+  const byError = [...latestRows].sort((a, b) => a.error - b.error);
+  return {
+    config: { ...cfg },
+    latest: {
+      rows: latestRows,
+      error: latestRows.length ? latestRows.reduce((sum, row) => sum + row.error, 0) / latestRows.length : null,
+      within: latestRows.filter((row) => row.error <= 0.15).length,
+      best: byError[0] ?? null,
+      worst: [...latestRows].sort((a, b) => b.error - a.error)[0] ?? null,
+      under: latestRows.filter((row) => row.diff < 0 && row.error > 0.1),
+      off: latestRows.filter((row) => row.verdict === "Off"),
+    },
+    rolling: { ...backtestMulti(d, cfg), rows: rollingRows, excludedZero },
+    insufficient,
+  };
+}

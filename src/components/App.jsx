@@ -6,7 +6,7 @@ import { ActionError, OFFLINE_ACTIONS, ROLE_LABEL, applyAction, canUser, deptOf,
 import { budgetLeft, members, openPOs, pendingRequests, userOf } from "@/lib/engine.js";
 import { clone, fromJSON, initials, nowStamp, toJSON } from "@/lib/format.js";
 import { DEFAULT_LANG, HTML_LANG, LANGS, dateText, translate } from "@/lib/i18n.js";
-import { Icon, RoleChip } from "./ui.jsx";
+import { Icon, LogoMark, RoleChip } from "./ui.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Products from "./pages/Products.jsx";
 import StockIn from "./pages/StockIn.jsx";
@@ -247,8 +247,8 @@ export default function App() {
         <main className="main" ref={mainRef}>
           <div className="topbar">
             <button className="icon-btn" aria-label={t("Open menu")} onClick={() => setNavOpen(true)}><Icon n="menu" size={20} /></button>
-            <span className="logo" style={{ width: 28, height: 28 }}><Icon n="spark" size={16} sw={2} /></span>
-            <span className="brand-name" style={{ fontSize: 15 }}>StockNow</span>
+            <LogoMark size={30} />
+            <span className="brand-name" style={{ fontSize: 16 }}>StockNow</span>
             <span className="spacer" />
             <RoleChip user={me} />
           </div>
@@ -282,19 +282,19 @@ function Sidebar({ open, profileOpen, setProfileOpen }) {
     { id: "stock-in", label: "Stock In", icon: "in", badge: ord || "", tone: "blue" },
     { id: "stock-out", label: "Stock Out", icon: "out" },
     { id: "suppliers", label: "Suppliers", icon: "store" },
-    { sep: 1 },
+    { sep: 1, label: "Plan & review" },
     { id: "ai", label: "Smart Restock", icon: "spark", ai: true },
     { id: "approvals", label: "Approvals", icon: "approve", badge: pend || "" },
     { id: "activity", label: "Activity Log", icon: "activity" },
-    { sep: 2 },
+    { sep: 2, label: "Shop" },
     { id: "team", label: "Team & access", icon: "users" },
     { id: "settings", label: "Settings", icon: "settings" },
   ].filter((m, i, all) => m.sep ? all[i - 1] && !all[i - 1].sep : pageAllowed(me, m.id));
   return (
     <nav className={`sidebar ${open ? "open" : ""}`} aria-label={t("Main")}>
-      <div className="brand"><span className="logo"><Icon n="spark" size={18} sw={2} /></span><span className="brand-name">StockNow</span></div>
+      <div className="brand"><LogoMark /><span className="brand-name">StockNow</span></div>
       <div className="nav-list">
-        {menu.map((m) => m.sep ? <div key={"sep" + m.sep} className="nav-sep" /> : (
+        {menu.map((m) => m.sep ? <Fragment key={"sep" + m.sep}><div className="nav-sep" /><div className="nav-group-label">{t(m.label)}</div></Fragment> : (
           <button key={m.id} className={`nav-item ${m.ai ? "ai" : ""} ${ui.page === m.id ? "active" : ""}`} onClick={() => go(m.id)} aria-current={ui.page === m.id ? "page" : undefined}>
             <Icon n={m.icon} /> <span>{t(m.label)}</span>
             {m.badge ? <span className={`nav-badge ${m.tone || ""}`}>{m.badge}</span> : null}

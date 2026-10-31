@@ -223,3 +223,8 @@ export function PieChart({ title, sub, parts, format, centerLabel, foot }) {
     </div>
   );
 }
+
+/* The StockNow logo: an open box with the name on its sides (public/logo.png, also the browser tab icon). */
+export function LogoMark({ size = 34 }) {
+  return <img className="logo-mark" src="/logo.png" width={size} height={size} alt="" style={{ borderRadius: Math.round(size * 0.24) }} />;
+}

@@ -4,11 +4,12 @@ import { useApp, OFFLINE_MSG } from "./App.jsx";
 import { routeText } from "./pages/AiRestock.jsx";
 import { AiSourceChip, Bullets, FieldError, Icon, Modal, Select } from "./ui.jsx";
 import {
-  analyse, budgetLeft, configOf, inPlan, lateDays, nameOfP, overridesOf, poOf, poTotal, productOf, reqOf, summaryBullets, supName, userOf,
+  analyse, configOf, inPlan, budgetLeft, lateDays, nameOfP, overridesOf, poOf, poTotal, productOf, reqOf, summaryBullets, supName, userOf,
 } from "@/lib/engine.js";
 import { chaseMessage, orderMessage } from "@/lib/messages.js";
 import { f1, pct, rm, rm2, toJSON } from "@/lib/format.js";
 import { monthName } from "@/lib/i18n.js";
+
 
 export default function Modals() {
   const { modal } = useApp();
@@ -310,9 +311,24 @@ function ConfirmModal({ title, body, label, danger, onOk }) {
   );
 }
 
-/* "Show calculation": every step of the AI's math for one product, with its real numbers. */
-/* Line chart for "Forecast sales for the next 30 days": what really sold each month, the trend line,
-   and the forecast for next month. Hover a month to read its numbers. */
+
+const MODALS = {
+  send: SendModal, reject: RejectModal, budget: BudgetModal, message: MessageModal, posCreated: PosCreatedModal, product: ProductModal,
+  category: CategoryModal, supplier: SupplierModal, grant: GrantModal, confirm: ConfirmModal, calc: CalcModal, payment: PaymentModal,
+};
+
+
+/* Visual restock calculation and complete worked formulas. */
+/* "Show calculation": a visual summary first (decision + key numbers), then 9 numbered stages.
+   Each stage shows its answer in plain words; the full math opens per stage or all at once. */
+
+
+
+
+
+
+
+/* Line chart for "Forecast sales for the next 30 days" (unchanged). */
 function ForecastChart({ s, fitted, lin, forecast, months, next }) {
   const { t } = useApp();
   const [on, setOn] = useState(null);
@@ -348,100 +364,223 @@ function ForecastChart({ s, fitted, lin, forecast, months, next }) {
   );
 }
 
+const Fm = ({ children }) => <div className="formula">{children}</div>;
+const Note = ({ children }) => <p className="muted small">{children}</p>;
+const B = ({ children }) => <b>{children}</b>;
+
+function Stage({ k, open, onToggle, t, tone, title, value, plain, visual, children }) {
+  return (
+    <section className={`cs cs-${tone}`} aria-labelledby={`cs-h-${k}`}>
+      <div className="cs-top">
+        <span className="cs-n" aria-hidden="true">{k}</span>
+        <div className="cs-title">
+          <span className="eyebrow">{t("Step {n}", { n: k })}</span>
+          <h4 id={`cs-h-${k}`}>{title}</h4>
+        </div>
+        {value != null ? <span className="cs-value num">{value}</span> : null}
+      </div>
+      {plain ? <p className="cs-plain">{plain}</p> : null}
+      {visual}
+      <button type="button" className="cs-toggle" aria-expanded={!!open} aria-controls={`cs-math-${k}`} onClick={() => onToggle(k)} data-testid={`button-calc-step-${k}`}>
+        <Icon n="calc" size={14} /> {open ? t("Hide the math") : t("Show the math")}
+        <Icon n={open ? "chevronUp" : "chevronDown"} size={14} />
+      </button>
+      {open ? <div className="cs-math" id={`cs-math-${k}`}>{children}</div> : null}
+    </section>
+  )
+}
+
 function CalcModal({ pid }) {
   const { d, ui, closeModal, t, days, lang } = useApp();
+  const [open, setOpen] = useState({});
+  const closeRef = useRef(closeModal);
+  closeRef.current = closeModal;
+  useEffect(() => {
+    const trigger = document.activeElement;
+    const dialog = document.querySelector('[role="dialog"]');
+    dialog?.querySelector("button")?.focus();
+    const handleKey = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+      }
+      if (event.key === "Tab" && dialog) {
+        const controls = [...dialog.querySelectorAll('button, input, select, textarea, a[href], [tabindex="0"]')]
+          .filter((el) => !el.disabled && el.getClientRects().length);
+        const first = controls[0], last = controls.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault(); last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault(); first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      if (trigger?.isConnected) trigger.focus();
+    };
+  }, []);
   const r = ui.ai.result || analyse(d, budgetLeft(d)), i = r.items.find((x) => x.pid === pid);
   if (!i) return null;
   const g = i.g, f = g.f, s = g.series, n = s.length, M = d.settings.salesMonths.slice(-n).map((m) => monthName(lang, m));
   const ENGINE = configOf(d), win = Math.round(30 * ENGINE.sellWindow);
   const q = inPlan(i) ? i.qty : 0, sold = Math.min(q, i.sellable), sellWin = Math.round(g.forecast * ENGINE.sellWindow);
-  const missPct = f.ym ? (f.rmse / f.ym) * 100 : 0;
+   const missPct = f.ym ? (f.rmse / f.ym) * 100 : 100;
   const raw = 97 - missPct * 2 - (g.trend === "Falling" ? 5 : 0) - (n < 6 ? 10 : 0);
   const pen = `${g.trend === "Falling" ? ` − 5 (${t("demand falling")})` : ""}${n < 6 ? ` − 10 (${t("under 6 months")})` : ""}`;
   const trend = t(g.trend).toLowerCase();
-  const rules = [
+   const fullNeedProfit = Math.min(i.need, i.sellable) * i.sell - i.need * i.unitCost;
+   const rules = [
     [t("Stock lasts {n}+ days (incl. on order)", { n: ENGINE.overstockDays }), days(g.coverAll), g.coverAll >= ENGINE.overstockDays],
     [t("Margin below {p}", { p: pct(ENGINE.lowMargin) }), pct(g.margin), g.margin < ENGINE.lowMargin],
     [t("Demand falling and stock at or above minimum"), `${trend} · ${t("{a} vs min {b}", { a: i.stock, b: i.min })}`, g.trend === "Falling" && i.stock >= i.min],
     [t("Nothing needed"), t("need {n}", { n: i.need }), i.need === 0],
+     [t("Buying the full need would not make a profit"), rm2(fullNeedProfit), i.need > 0 && fullNeedProfit <= 0],
   ];
   const parts = [[t("Urgency: stock lasts {days}", { days: days(g.cover) }), g.cover < 7 ? 40 : g.cover < 14 ? 30 : g.cover < 30 ? 15 : 5], [t("Below minimum stock"), i.stock < i.min ? 10 : 0], [t("Out of stock"), i.stock === 0 ? 10 : 0],
     [`${t("Trend")}: ${trend}${g.trend === "Rising" ? ` (+${pct(g.growth)})` : ""}`, g.trend === "Rising" ? 10 + Math.min(15, g.growth * 15) : g.trend === "Falling" ? -10 : 0],
     [`${t("Margin")} ${pct(g.margin)} × 30`, g.margin * 30], [`${t("Confidence")} (${g.conf} − 50) ÷ 5`, (g.conf - 50) / 5]];
   const ranked = r.items.filter((x) => x.decision === "BUY").sort((a, b) => b.score - a.score), rank = ranked.findIndex((x) => x.pid === i.pid) + 1;
   const rawNeed = i.demandPlan + i.safety - i.stock - g.incoming;
-  const Step = ({ k, title, children }) => <div className="calc-step"><span className="calc-n">{k}</span><div className="stack" style={{ gap: 6, minWidth: 0 }}><h4>{title}</h4>{children}</div></div>;
-  const Fm = ({ children }) => <div className="formula">{children}</div>;
-  const Note = ({ children }) => <p className="muted small">{children}</p>;
-  const B = ({ children }) => <b>{children}</b>;
+  const hits = rules.filter((x) => x[2]).length;
+
+  const kind = i.decision === "DO_NOT_BUY" ? "skip" : !inPlan(i) ? "wait" : i.qty < i.need ? "partial" : "buy";
+  const verdict = {
+    buy: ["cart", t("Buy"), t("Buy {n} pieces", { n: i.qty })],
+    partial: ["cart", t("Buy, reduced by budget"), t("The budget covered {a} of the {b}.", { a: i.qty, b: i.need })],
+    wait: ["pause", t("Buy, waiting for budget"), t("Not in this plan: the budget went to items with a higher priority (step 9).")],
+    skip: ["ban", t("Don't buy"), t("Not bought because of a rule in step 6.")],
+  }[kind];
+
+  const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  const allOpen = ids.every((k) => open[k]);
+  const toggleAll = () => setOpen(allOpen ? {} : Object.fromEntries(ids.map((k) => [k, true])));
+  const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
+
+  const flow = (items) => (
+    <div className="cs-flow">{items.map(([v, l, cls], x) => typeof v === "string" && l === undefined
+      ? <span key={x} className="cs-op" aria-hidden="true">{v}</span>
+      : <span key={x} className={`cs-chip ${cls || ""}`}><b className="num">{v}</b><span>{l}</span></span>)}</div>
+  );
+
   const months = (
     <div className="fc-table"><div className="eyebrow">{t("Pieces sold each month")}</div>
       <div className="scroll-x"><table className="mini"><thead><tr>{M.map((m) => <th key={m} className="right">{m}</th>)}</tr></thead><tbody><tr>{s.map((v, k) => <td key={k} className="right num bold">{v}</td>)}</tr></tbody></table></div></div>
   );
+
   return (
     <Modal title={t("How StockNow calculated: {name}", { name: i.name })} size="wide" onClose={closeModal} foot={<button className="btn btn-primary" onClick={closeModal}>{t("Close")}</button>}>
-      <Step k={1} title={t("Forecast sales for the next 30 days")}>
-        <ForecastChart s={s} fitted={f.fitted} lin={f.lin} forecast={g.forecast} months={M} next={t("Next")} />
-        {months}
-        <Fm>{t("Recent months count more")}: ({s[n - 1]}×3 + {s[n - 2]}×2 + {s[n - 3]}×1) ÷ 6 = <B>{f1(f.wma)}</B></Fm>
-        <Fm>{t("Trend line: sales change {x} a month", { x: `${f.slope >= 0 ? "+" : "−"}${f1(Math.abs(f.slope))}` })} → {t("average")} {f1(f.ym)} + ({f1(f.slope)} × {f1(f.step)}) = <B>{f1(f.lin)}</B></Fm>
-        <Fm>{t("Forecast")} = {ENGINE.wmaWeight} × {f1(f.wma)} + {ENGINE.trendWeight} × {f1(f.lin)} = <B>{t("{n} pieces", { n: g.forecast })}</B></Fm>
-        <Note>{t("Two methods balance each other: the weighted average reacts to the latest months, the trend line follows the direction.")}</Note>
-      </Step>
-      <Step k={2} title={t("How long current stock lasts")}>
-        {g.daily > 0 ? <>
-          <Fm>{g.forecast} ÷ 30 = <B>{t("{n} sold a day", { n: g.daily.toFixed(1) })}</B></Fm>
-          <Fm>{t("{n} in stock", { n: i.stock })} ÷ {g.daily.toFixed(1)} = <B>{i.stock === 0 ? t("already empty") : days(g.cover)}</B>{g.incoming ? ` · ${t("with {n} on order: {days}", { n: g.incoming, days: days(g.coverAll) })}` : ""}</Fm>
-        </> : <Note>{t("No recent sales, so this stock never runs out.")}</Note>}
-      </Step>
-      <Step k={3} title={t("Safety stock, in case sales jump")}><Fm>{t("Larger of: minimum {min}, or {p} × {f} = {x}", { min: i.min, p: pct(ENGINE.safetyPct), f: g.forecast, x: Math.ceil(g.forecast * ENGINE.safetyPct) })} → <B>{i.safety}</B></Fm></Step>
-      <Step k={4} title={t("How many to buy")}>
-        {g.trend === "Falling" ? <Fm>{t("Demand is falling, so plan only {p}", { p: pct(ENGINE.cautious) })}: {g.forecast} × {ENGINE.cautious} = <B>{i.demandPlan}</B></Fm> : null}
-        <Fm>{t("{a} to sell + {b} safety − {c} in stock − {d} on order", { a: i.demandPlan, b: i.safety, c: i.stock, d: g.incoming })} = <B>{i.need}</B>{rawNeed < 0 ? ` (${t("{n} is below zero, so 0", { n: rawNeed })})` : ""}</Fm>
-        {i.decision === "BUY" && inPlan(i) && i.qty < i.need ? <Note>{t("The budget covered {a} of the {b}.", { a: <b>{i.qty}</b>, b: i.need })}</Note> : null}
-        {i.decision === "BUY" && !inPlan(i) ? <Note>{t("Not in this plan: the budget went to items with a higher priority (step 9).")}</Note> : null}
-        {i.decision === "DO_NOT_BUY" ? <Note>{t("Not bought because of a rule in step 6.")}</Note> : null}
-      </Step>
-      <Step k={5} title={t("Margin: profit per piece")}><Fm>({rm2(i.sell)} − {rm2(i.unitCost)}) ÷ {rm2(i.sell)} = <B>{pct(g.margin)}</B> · {t("{x} per piece", { x: rm2(i.sell - i.unitCost) })}</Fm></Step>
-      <Step k={6} title={t("Buy or not? Four rules")}>
-        <div className="scroll-x"><table className="mini"><thead><tr><th>{t("Skip if…")}</th><th>{t("This product")}</th><th>{t("Result")}</th></tr></thead>
-          <tbody>{rules.map(([k, v, hit]) => <tr key={k}><td>{k}</td><td className="num">{v}</td><td>{hit ? <span className="chip chip-red">{t("Skip")}</span> : <span className="chip chip-green">OK</span>}</td></tr>)}</tbody></table></div>
-        <div className="row" style={{ gap: 8 }}><span className="muted small">{t("Decision:")}</span>{i.decision === "DO_NOT_BUY" ? <span className="chip chip-red">{t("Don't buy")}</span> : inPlan(i) ? <span className="chip chip-green">{t("Buy")}</span> : <span className="chip chip-amber">{t("Buy, waiting for budget")}</span>}</div>
-      </Step>
-      <Step k={7} title={t("Expected gross profit")}>
-        {q ? <>
-          <Fm>{t("Can sell within {n} days", { n: win })}: {g.forecast} × {ENGINE.sellWindow} = {sellWin} − {t("{n} in stock", { n: i.stock })} − {t("{n} on order", { n: g.incoming })} = <B>{i.sellable}</B></Fm>
-          <Fm>{t("Counted as sold: smaller of {a} bought and {b}", { a: q, b: i.sellable })} = <B>{sold}</B></Fm>
-          <Fm>{t("Revenue")} {sold} × {rm2(i.sell)} = {rm(i.revenue)} · {t("Cost")} {q} × {rm2(i.unitCost)} = {rm(i.cost)}</Fm>
-          <Fm>{t("Gross profit")} {rm(i.revenue)} − {rm(i.cost)} = <B>{rm(i.profit)}</B> · ROI {rm(i.profit)} ÷ {rm(i.cost)} = <B>{pct(i.roi)}</B></Fm>
-          <Note>{t("Pieces that might not sell within {n} days earn nothing in this estimate, so it stays on the safe side.", { n: win })}</Note>
-        </> : <Note>{i.decision === "DO_NOT_BUY" ? t("Nothing bought, so no profit counted. Cash already sitting in this stock: {a} × {b} = {c}.", { a: i.stock, b: rm2(i.unitCost), c: <b>{rm(i.stock * i.unitCost)}</b> }) : t("Nothing bought in this plan, so no profit counted.")}</Note>}
-      </Step>
-      <Step k={8} title={t("Confidence: how steady are the sales?")}>
-        <div className="scroll-x"><table className="mini"><thead><tr><th />{M.map((m) => <th key={m} className="right">{m}</th>)}</tr></thead><tbody>
-          <tr><td className="muted">{t("Sold")}</td>{s.map((v, k) => <td key={k} className="right num">{v}</td>)}</tr>
-          <tr><td className="muted">{t("Trend line")}</td>{f.fitted.map((v, k) => <td key={k} className="right num">{f1(v)}</td>)}</tr>
-          <tr><td className="muted">{t("Miss")}</td>{s.map((v, k) => <td key={k} className="right num">{f1(Math.abs(v - f.fitted[k]))}</td>)}</tr>
-        </tbody></table></div>
-        <Fm>{t("Average miss (RMSE) = {a} pieces = {b}% of the average {c}", { a: f1(f.rmse), b: f1(missPct), c: f1(f.ym) })}</Fm>
-        <Fm>97 − {f1(missPct)} × 2{pen} = {f1(raw)}{raw > 97 || raw < 55 ? ` (${t("kept between 55 and 97")})` : ""} → <B>{g.conf}%</B></Fm>
-        <Note>{t("High confidence means the sales pattern is steady and easy to predict. It is not a promise of profit.")}</Note>
-      </Step>
-      <Step k={9} title={t("Priority and budget")}>
-        {i.decision === "BUY" ? <>
-          <div className="scroll-x"><table className="mini"><tbody>
-            {parts.map(([k, v]) => <tr key={k}><td>{k}</td><td className="right num">{v >= 0 ? "+" : "−"}{f1(Math.abs(v))}</td></tr>)}
-            <tr><td className="bold">{t("Priority score")}</td><td className="right num bold">{i.score}</td></tr>
+      <div className={`calc-hero ch-${kind}`}>
+        <div className="ch-verdict">
+          <span className="ch-ic"><Icon n={verdict[0]} size={22} /></span>
+          <div className="stack" style={{ gap: 2, minWidth: 0 }}>
+            <span className="eyebrow">{t("Decision:")}</span>
+            <span className="ch-word">{verdict[1]}</span>
+            <span className="small">{verdict[2]}</span>
+          </div>
+        </div>
+        <div className="ch-metrics">
+          <div className="ch-m m-blue"><span>{t("Next 30 days")}</span><b className="num">{t("{n} pieces", { n: g.forecast })}</b><em>{t(g.trend)}</em></div>
+          <div className="ch-m m-mint"><span>{t("Stock runway")}</span><b className="num">{i.stock === 0 ? t("Empty now") : days(g.cover)}</b><em>{t("{n} in stock", { n: i.stock })}{g.incoming ? ` · ${t("{n} on order", { n: g.incoming })}` : ""}</em></div>
+          <div className="ch-m m-sun"><span>{t("Expected gross profit")}</span><b className="num">{q ? rm(i.profit) : "—"}</b><em>{q ? `ROI ${pct(i.roi)}` : t("Nothing bought")}</em></div>
+          <div className="ch-m m-lilac"><span>{t("Confidence")}</span><b className="num">{g.conf}%</b><em>{i.decision === "BUY" ? t("#{a} of {b}", { a: rank, b: ranked.length }) : t("Not ranked")}</em></div>
+        </div>
+      </div>
+
+      <div className="calc-bar">
+        <span className="muted small">{t("Plain answers first. Open any step to inspect the exact formula and numbers.")}</span>
+        <button type="button" className="btn btn-secondary btn-sm" aria-pressed={allOpen} onClick={toggleAll} data-testid="button-calc-toggle-all">
+          <Icon n="calc" size={14} /> {allOpen ? t("Hide all formulas") : t("Show all formulas")}
+        </button>
+      </div>
+
+      <div className="cs-grid">
+        <Stage k={1} open={!!open[1]} onToggle={toggle} t={t} tone="blue" title={t("Forecast sales for the next 30 days")} value={t("{n} pieces", { n: g.forecast })}
+          plain={t("Two methods balance each other: the weighted average reacts to the latest months, the trend line follows the direction.")}
+          visual={<ForecastChart s={s} fitted={f.fitted} lin={f.lin} forecast={g.forecast} months={M} next={t("Next")} />}>
+          {months}
+          <Fm>{t("Recent months count more")}: ({s[n - 1]}×3 + {s[n - 2]}×2 + {s[n - 3]}×1) ÷ 6 = <B>{f1(f.wma)}</B></Fm>
+           <Fm>x = 0 … {n - 1}; x̄ = ({n} − 1) ÷ 2 = {(n - 1) / 2}; ȳ = ({s.join(" + ")}) ÷ {n} ≈ {f1(f.ym)}<br />{t("Trend line")}: slope = Σ((x − x̄)(y − ȳ)) ÷ Σ((x − x̄)²) ≈ <B>{f1(f.slope)}</B></Fm>
+          <Fm>{t("Trend line: sales change {x} a month", { x: `${f.slope >= 0 ? "+" : "−"}${f1(Math.abs(f.slope))}` })} → {t("average")} {f1(f.ym)} + ({f1(f.slope)} × {f1(f.step)}) = <B>{f1(f.lin)}</B></Fm>
+           <Fm>{t("Forecast")} = max(0, round({ENGINE.wmaWeight} × {f1(f.wma)} + {ENGINE.trendWeight} × {f1(f.lin)})) = <B>{t("{n} pieces", { n: g.forecast })}</B></Fm>
+        </Stage>
+
+        <Stage k={2} open={!!open[2]} onToggle={toggle} t={t} tone="mint" title={t("How long current stock lasts")} value={g.daily > 0 ? (i.stock === 0 ? t("already empty") : days(g.cover)) : t("no recent sales")}
+          plain={g.daily > 0 ? t("{n} sold a day", { n: g.daily.toFixed(1) }) : t("No recent sales, so this stock never runs out.")}
+          visual={g.daily > 0 ? <div className="cs-runway" aria-hidden="true"><i style={{ transform: `scaleX(${Math.min(1, g.cover === Infinity ? 1 : g.cover / 30)})` }} /></div> : null}>
+          {g.daily > 0 ? <>
+            <Fm>{g.forecast} ÷ 30 = <B>{t("{n} sold a day", { n: g.daily.toFixed(1) })}</B></Fm>
+            <Fm>{t("{n} in stock", { n: i.stock })} ÷ {g.daily.toFixed(1)} = <B>{i.stock === 0 ? t("already empty") : days(g.cover)}</B>{g.incoming ? ` · ${t("with {n} on order: {days}", { n: g.incoming, days: days(g.coverAll) })}` : ""}</Fm>
+          </> : <Note>{t("No recent sales, so this stock never runs out.")}</Note>}
+        </Stage>
+
+        <Stage k={3} open={!!open[3]} onToggle={toggle} t={t} tone="sun" title={t("Safety stock, in case sales jump")} value={i.safety}
+           plain={t("Use the larger value.")}
+           visual={flow([[i.min, t("Minimum")], ["↔"], [Math.ceil(g.forecast * ENGINE.safetyPct), `${pct(ENGINE.safetyPct)} × ${g.forecast}`], ["→"], [i.safety, t("Safety"), "fin"]])}>
+          <Fm>{t("Larger of: minimum {min}, or {p} × {f} = {x}", { min: i.min, p: pct(ENGINE.safetyPct), f: g.forecast, x: Math.ceil(g.forecast * ENGINE.safetyPct) })} → <B>{i.safety}</B></Fm>
+        </Stage>
+
+        <Stage k={4} open={!!open[4]} onToggle={toggle} t={t} tone="lilac" title={t("How many to buy")} value={i.need}
+          visual={flow([[i.demandPlan, t("Will sell")], ["+"], [i.safety, t("Safety")], ["−"], [i.stock, t("In stock")], ["−"], [g.incoming, t("On order")], ["="], [i.need, t("Needed"), "fin"], ...(inPlan(i) && i.qty !== i.need ? [["→"], [i.qty, t("In plan"), "fin"]] : [])])}>
+          {g.trend === "Falling" ? <Fm>{t("Demand is falling, so plan only {p}", { p: pct(ENGINE.cautious) })}: {g.forecast} × {ENGINE.cautious} = <B>{i.demandPlan}</B></Fm> : null}
+          <Fm>{t("{a} to sell + {b} safety − {c} in stock − {d} on order", { a: i.demandPlan, b: i.safety, c: i.stock, d: g.incoming })} = <B>{i.need}</B>{rawNeed < 0 ? ` (${t("{n} is below zero, so 0", { n: rawNeed })})` : ""}</Fm>
+          {i.decision === "BUY" && inPlan(i) && i.qty < i.need ? <Note>{t("The budget covered {a} of the {b}.", { a: <b>{i.qty}</b>, b: i.need })}</Note> : null}
+          {i.decision === "BUY" && !inPlan(i) ? <Note>{t("Not in this plan: the budget went to items with a higher priority (step 9).")}</Note> : null}
+          {i.decision === "DO_NOT_BUY" ? <Note>{t("Not bought because of a rule in step 6.")}</Note> : null}
+        </Stage>
+
+        <Stage k={5} open={!!open[5]} onToggle={toggle} t={t} tone="mint" title={t("Margin: profit per piece")} value={pct(g.margin)} plain={t("{x} per piece", { x: rm2(i.sell - i.unitCost) })}
+          visual={<div className="cs-split" aria-hidden="true"><i className="c" style={{ flexGrow: Math.max(0.01, 1 - g.margin) }}>{rm2(i.unitCost)}</i><i className="p" style={{ flexGrow: Math.max(0.01, g.margin) }}>{rm2(i.sell - i.unitCost)}</i></div>}>
+          <Fm>({rm2(i.sell)} − {rm2(i.unitCost)}) ÷ {rm2(i.sell)} = <B>{pct(g.margin)}</B> · {t("{x} per piece", { x: rm2(i.sell - i.unitCost) })}</Fm>
+        </Stage>
+
+         <Stage k={6} open={!!open[6]} onToggle={toggle} t={t} tone={hits ? "red" : "mint"} title={t("Buy or not? Five rules")} value={hits ? t("Skip") : "OK"}
+          visual={<div className="cs-rules">{rules.map(([k, , hit]) => <span key={k} className={hit ? "hit" : ""}><Icon n={hit ? "ban" : "check"} size={13} sw={2.4} />{k}</span>)}</div>}>
+          <div className="scroll-x"><table className="mini"><thead><tr><th>{t("Skip if…")}</th><th>{t("This product")}</th><th>{t("Result")}</th></tr></thead>
+            <tbody>{rules.map(([k, v, hit]) => <tr key={k}><td>{k}</td><td className="num">{v}</td><td>{hit ? <span className="chip chip-red">{t("Skip")}</span> : <span className="chip chip-green">OK</span>}</td></tr>)}</tbody></table></div>
+          <div className="row" style={{ gap: 8 }}><span className="muted small">{t("Decision:")}</span>{i.decision === "DO_NOT_BUY" ? <span className="chip chip-red">{t("Don't buy")}</span> : inPlan(i) ? <span className="chip chip-green">{t("Buy")}</span> : <span className="chip chip-amber">{t("Buy, waiting for budget")}</span>}</div>
+           <Fm>{t("Expected gross profit")} ({t("Needed")}) = min({i.need}, {i.sellable}) × {rm2(i.sell)} − {i.need} × {rm2(i.unitCost)} = <B>{rm2(fullNeedProfit)}</B></Fm>
+        </Stage>
+
+        <Stage k={7} open={!!open[7]} onToggle={toggle} t={t} tone="sun" title={t("Expected gross profit")} value={q ? rm(i.profit) : "—"}
+          plain={q ? t("Pieces that might not sell within {n} days earn nothing in this estimate, so it stays on the safe side.", { n: win }) : null}
+          visual={q ? flow([[rm(i.revenue), t("Revenue")], ["−"], [rm(i.cost), t("Cost")], ["="], [rm(i.profit), t("Gross profit"), "fin"]]) : null}>
+          {q ? <>
+            <Fm>{t("Can sell within {n} days", { n: win })}: {g.forecast} × {ENGINE.sellWindow} = {sellWin} − {t("{n} in stock", { n: i.stock })} − {t("{n} on order", { n: g.incoming })} = <B>{i.sellable}</B></Fm>
+            <Fm>{t("Counted as sold: smaller of {a} bought and {b}", { a: q, b: i.sellable })} = <B>{sold}</B></Fm>
+            <Fm>{t("Revenue")} {sold} × {rm2(i.sell)} = {rm(i.revenue)} · {t("Cost")} {q} × {rm2(i.unitCost)} = {rm(i.cost)}</Fm>
+             <Fm>{t("Gross profit")} = max(0, {rm(i.revenue)} − {rm(i.cost)}) = <B>{rm(i.profit)}</B> · ROI {rm(i.profit)} ÷ {rm(i.cost)} = <B>{pct(i.roi)}</B></Fm>
+            <Note>{t("Pieces that might not sell within {n} days earn nothing in this estimate, so it stays on the safe side.", { n: win })}</Note>
+          </> : <Note>{i.decision === "DO_NOT_BUY" ? t("Nothing bought, so no profit counted. Cash already sitting in this stock: {a} × {b} = {c}.", { a: i.stock, b: rm2(i.unitCost), c: <b>{rm(i.stock * i.unitCost)}</b> }) : t("Nothing bought in this plan, so no profit counted.")}</Note>}
+        </Stage>
+
+        <Stage k={8} open={!!open[8]} onToggle={toggle} t={t} tone="blue" title={t("Confidence: how steady are the sales?")} value={`${g.conf}%`}
+          plain={t("High confidence means the sales pattern is steady and easy to predict. It is not a promise of profit.")}
+          visual={<div className="cs-gauge" aria-hidden="true"><i style={{ transform: `scaleX(${g.conf / 100})` }} /></div>}>
+          <div className="scroll-x"><table className="mini"><thead><tr><th />{M.map((m) => <th key={m} className="right">{m}</th>)}</tr></thead><tbody>
+            <tr><td className="muted">{t("Sold")}</td>{s.map((v, k) => <td key={k} className="right num">{v}</td>)}</tr>
+            <tr><td className="muted">{t("Trend line")}</td>{f.fitted.map((v, k) => <td key={k} className="right num">{f1(v)}</td>)}</tr>
+            <tr><td className="muted">{t("Miss")}</td>{s.map((v, k) => <td key={k} className="right num">{f1(Math.abs(v - f.fitted[k]))}</td>)}</tr>
           </tbody></table></div>
-          <Note>{t("The budget is filled from the highest score down. {name} is {rank} items worth buying.", { name: i.short, rank: <b>{t("#{a} of {b}", { a: rank, b: ranked.length })}</b> })}</Note>
-        </> : <Note>{t("Not ranked: StockNow doesn't suggest buying this item.")}</Note>}
-      </Step>
+           <Fm>RMSE = √(Σ(({t("Sold")} − {t("Trend line")})²) ÷ {n}) ≈ <B>{f1(f.rmse)}</B><br />{t("Average miss (RMSE) = {a} pieces = {b}% of the average {c}", { a: f1(f.rmse), b: f1(missPct), c: f1(f.ym) })}</Fm>
+           {!f.ym ? <Note>{t("With no average sales, a 100% miss is used so confidence stays cautious.")}</Note> : null}
+          <Fm>97 − {f1(missPct)} × 2{pen} = {f1(raw)}{raw > 97 || raw < 55 ? ` (${t("kept between 55 and 97")})` : ""} → <B>{g.conf}%</B></Fm>
+        </Stage>
+
+        <Stage k={9} open={!!open[9]} onToggle={toggle} t={t} tone="lilac" title={t("Priority and budget")} value={i.decision === "BUY" ? i.score : "—"}
+          plain={i.decision === "BUY" ? t("The budget is filled from the highest score down. {name} is {rank} items worth buying.", { name: i.short, rank: <b>{t("#{a} of {b}", { a: rank, b: ranked.length })}</b> }) : t("Not ranked: StockNow doesn't suggest buying this item.")}>
+          {i.decision === "BUY" ? <>
+            <div className="scroll-x"><table className="mini"><tbody>
+              {parts.map(([k, v]) => <tr key={k}><td>{k}</td><td className="right num">{v >= 0 ? "+" : "−"}{f1(Math.abs(v))}</td></tr>)}
+              <tr><td className="bold">{t("Priority score")}</td><td className="right num bold">{i.score}</td></tr>
+            </tbody></table></div>
+             <Fm>{t("Priority score")} = round({parts.map(([, v]) => f1(v)).join(" + ")}) = <B>{i.score}</B></Fm>
+             <Note>{t("Initial budget allocation: affordable pieces = floor(remaining budget ÷ unit cost). A partial order needs at least max(5, ceil(25% × need)) pieces. Manual edits can change the final quantity.")}</Note>
+          </> : <Note>{t("Not ranked: StockNow doesn't suggest buying this item.")}</Note>}
+        </Stage>
+      </div>
       <div className="notice blue" style={{ marginTop: 14 }}><Icon n="info" size={16} /><span>{t("Estimates from {n} months of sales. They don't know about promotions, festivals or competitors, and profit is before rent, wages and delivery. That's why a person approves every plan.", { n })}</span></div>
     </Modal>
   );
 }
-
-const MODALS = {
-  send: SendModal, reject: RejectModal, budget: BudgetModal, message: MessageModal, posCreated: PosCreatedModal, product: ProductModal,
-  category: CategoryModal, supplier: SupplierModal, grant: GrantModal, confirm: ConfirmModal, calc: CalcModal, payment: PaymentModal,
-};

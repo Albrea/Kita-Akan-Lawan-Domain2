@@ -73,7 +73,7 @@ export default function ActivityLog() {
     <>
       <div className="page-head">
         <div><h1 className="page-title">{t("Activity Log")}</h1><p className="page-sub">{t("Every stock movement and action is recorded permanently.")}</p></div>
-        <button className="btn btn-secondary" onClick={exportCsv} disabled={!rows.length}><Icon n="download" size={16} /> {t("Export CSV")}</button>
+        <button className="btn btn-primary" onClick={exportCsv} disabled={!rows.length}><Icon n="download" size={16} /> {t("Export CSV")}</button>
       </div>
       <div className="card">
         {/* One row of filters, like a spreadsheet: dates, activity, source, user, search, reset. */}
@@ -105,9 +105,9 @@ export default function ActivityLog() {
                   </> : <>
                     <td className="mono nowrap">{r.sku}</td>
                     <td className="bold nowrap">{r.product}{r.pending ? <> <span className="chip chip-amber">{t("Pending sync")}</span></> : null}</td>
-                    <td className="right num bold">{r.before}</td>
-                    <td className="right num bold" style={{ color: r.change > 0 ? "var(--green-fg)" : "var(--red-fg)" }}>{sign(r.change)}</td>
-                    <td className="right num bold">{r.after}</td>
+                    <td className="right"><span className="qty-badge qty-before" data-testid={`badge-before-${r.key}`}>{r.before}</span></td>
+                    <td className="right"><span className={`qty-badge ${r.change > 0 ? "qty-plus" : r.change < 0 ? "qty-minus" : "qty-zero"}`} data-testid={`badge-change-${r.key}`}>{r.change === 0 ? "0" : sign(r.change)}</span></td>
+                    <td className="right"><span className="qty-badge qty-after" data-testid={`badge-after-${r.key}`}>{r.after}</span></td>
                   </>}
                   <td className="nowrap">{t(r.activity)}</td>
                   <td className="nowrap muted">{t(r.source)}{r.ref ? <div className="mono faint small">{r.ref}</div> : null}</td>

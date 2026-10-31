@@ -1,14 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../App.jsx";
-import { AiSourceChip, Bullets, DotIc, Empty, Icon, PoCell, ReqChip, Spark, confColor, reasonIcon } from "../ui.jsx";
+import { Modal, AiSourceChip, Bullets, DotIc, Empty, Icon, PoCell, ReqChip, Spark, confColor, reasonIcon } from "../ui.jsx";
 import {
-  analyse, backtest, backtestMulti, budgetLeft, configOf, checks, inPlan, openPOs, overridesOf, poOf, routeTo, sendBlock, setItemIncluded, setItemQty,
+  explainAccuracy, analyse, backtest, backtestMulti, budgetLeft, configOf, checks, inPlan, openPOs, overridesOf, poOf, routeTo, sendBlock, setItemIncluded, setItemQty,
   spentThisMonth, summaryBullets, userOf,
 } from "@/lib/engine.js";
 import { ROLE_LABEL } from "@/lib/actions.js";
-import { clone, digits, list, num, pct, plural, rm, toJSON } from "@/lib/format.js";
+import { f1, clone, digits, list, num, pct, plural, rm, toJSON } from "@/lib/format.js";
 import { monthName } from "@/lib/i18n.js";
+
 import { SETTINGS_UI, historyMode, typeDefaults, uiRange, validateConfig } from "@/lib/forecast.js";
 
 const REDUCED = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -413,6 +414,7 @@ function AccuracyView() {
   const { d, t, lang } = useApp();
   const bt = backtest(d), M = d.settings.salesMonths.map((m) => monthName(lang, m)), last = M.at(-1), range = `${M[0]}–${M.at(-2)}`;
   const multi = backtestMulti(d);
+  const [det, setDet] = useState(null);
   if (!bt.length) return <div className="card"><Empty title={t("Not enough history")} text={t("Products need 4 months of sales or more to test.")} ic="activity" /></div>;
   const mape = bt.reduce((s, x) => s + x.err, 0) / bt.length, within = bt.filter((x) => x.err <= 0.15).length;
   const best = [...bt].sort((a, b) => a.err - b.err)[0], worst = [...bt].sort((a, b) => b.err - a.err)[0];
@@ -428,13 +430,17 @@ function AccuracyView() {
       </div>
       <p className="muted" style={{ marginBottom: 16 }}>{t("We hid {last}'s sales, predicted {last} from {range} only, then compared with what really sold.", { last, range })}</p>
       {multi.tests ? <div className="notice ai" style={{ marginBottom: 16 }}><Icon n="activity" size={16} /><span>{t("Across every month with 3 months before it ({n} tests): {a} average error with the current forecast settings, {b} for the simple “average of the last 3 months” guess.", { n: multi.tests, a: <b>{pct(multi.error)}</b>, b: pct(multi.baseline) })}</span></div> : null}
+      <div className="acc-actions">
+        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setDet({ pid: null })} data-testid="button-accuracy-details"><Icon n="calc" size={14} /> {t("View calculation details")}</button>
+      </div>
+      {det ? <AccuracyDetails focusPid={det.pid} onClose={() => setDet(null)} /> : null}
       <div className="budget-tiles">
         {tile("target", "ai", t("Average error"), pct(mape))}
         {tile("check", "green", t("Within 15%"), t("{a} of {b} products", { a: within, b: bt.length }))}
         {tile("warning", worst.verdict === "Off" ? "red" : "amber", t("Biggest miss"), `${worst.p.short} ${pct(worst.err)}`)}
       </div>
       <div className="scroll-x"><table style={{ minWidth: 660 }}>
-        <thead><tr><th>{t("Product")}</th><th>{t("Forecast vs actual")}</th><th className="right">{t("Forecast")}</th><th className="right">{t("Really sold")}</th><th className="right">{t("Difference")}</th><th>{t("Result")}</th></tr></thead>
+        <thead><tr><th>{t("Product")}</th><th>{t("Forecast vs actual")}</th><th className="right">{t("Forecast")}</th><th className="right">{t("Really sold")}</th><th className="right">{t("Difference")}</th><th>{t("Result")}</th><th><span className="sr-only">{t("Details")}</span></th></tr></thead>
         <tbody>{bt.map((x) => (
           <tr key={x.p.id}>
             <td className="bold">{x.p.name}</td>
@@ -443,6 +449,7 @@ function AccuracyView() {
             <td className="right num bold">{x.actual}</td>
             <td className="right num" style={{ color: x.err <= 0.1 ? "var(--green-fg)" : x.err <= 0.2 ? "var(--amber-fg)" : "var(--red-fg)" }}>{x.diff > 0 ? "+" : x.diff < 0 ? "−" : ""}{Math.abs(x.diff)} ({pct(x.err)})</td>
             <td>{vchip(x.verdict)}</td>
+            <td><button type="button" className="btn btn-link btn-sm" onClick={() => setDet({ pid: x.p.id })} aria-label={t("How this was calculated: {name}", { name: x.p.name })} data-testid={`button-accuracy-row-${x.p.id}`}><Icon n="calc" size={14} /> {t("Details")}</button></td>
           </tr>
         ))}</tbody>
       </table></div>
@@ -482,6 +489,7 @@ function ForecastSettings() {
   const [st, setSt] = useState({ phase: "idle" }); // idle | asking | proposal | error
   const [edit, setEdit] = useState(null); // the proposal's values as the person adjusts them
   const [secs, setSecs] = useState(0);
+  const [proof, setProof] = useState(false); // the "View calculation details" window for the error numbers
   useEffect(() => {
     if (st.phase !== "asking") return setSecs(0);
     const tm = setInterval(() => setSecs((x) => x + 1), 1000);
@@ -514,7 +522,6 @@ function ForecastSettings() {
   }
   /* The person types % or days; the engine value is stored (e.g. 45 days → 1.5 months). */
   const setVal = (k, raw) => setEdit((e) => ({ ...e, [k]: raw === "" || !Number.isFinite(Number(raw)) ? "" : SETTINGS_UI[k].fromUi(Number(raw)) }));
-  const label = (k) => <><span>{t(SETTINGS_UI[k].label)}</span><div className="faint small setting-help">{t(SETTINGS_UI[k].help)}</div></>;
   const pc = (x) => `${(x * 100).toFixed(1)}%`;
   const sourceChip = !saved ? <span className="chip chip-grey">{t("Default settings")}</span>
     : saved.source === "ai" ? <span className="chip chip-ai"><Icon n="spark" size={12} /> {t("Suggested from your sales")}</span>
@@ -528,17 +535,17 @@ function ForecastSettings() {
           {sourceChip}
         </div>
         <p className="muted small" style={{ marginBottom: 12 }}>{t("These settings fine-tune the forecast for your shop. StockNow can suggest them from your past sales; nothing changes until you approve.")}</p>
-        <div className={`notice ${mode.key === "enough" ? "ai" : "amber"}`} style={{ marginBottom: 14 }}><Icon n="activity" size={16} /><span><b>{t(mode.label)}</b> ({t("{n} months of sales", { n: months })}). {t(mode.text)}</span></div>
-        <div className="scroll-x"><table className="mini">
-          <thead><tr><th>{t("Setting")}</th><th className="right">{t("In use")}</th><th className="right">{t("Default")}</th><th className="right">{t("Allowed")}</th></tr></thead>
-          <tbody>{SETTING_KEYS.map((k) => (
-            <tr key={k}><td>{label(k)}</td><td className="right num bold nowrap">{f(k, cfg[k])}</td><td className="right num muted nowrap">{f(k, typeDefaults(d.settings.businessType)[k])}</td><td className="right num faint nowrap">{rangeText(k)}</td></tr>
-          ))}</tbody>
-        </table></div>
-        <div className="row wrap" style={{ justifyContent: "space-between", gap: 10, marginTop: 12 }}>
-          <span className="small">{t("Backtest with these settings: {a} average error over {n} tests (simple 3-month average: {b}).", { a: <b>{pc(now.error)}</b>, n: now.tests, b: pc(now.baseline) })}</span>
-          {saved ? <span className="faint small">{t("Approved by {name} · {date}", { name: userOf(d, saved.approvedBy).name, date: when(saved.at) })}</span> : null}
+        <div className="row wrap" style={{ gap: 8, marginBottom: 16 }}>
+          <span className={`chip ${mode.key === "enough" ? "chip-ai" : "chip-amber"}`} title={t(mode.text)}><Icon n="activity" size={12} /> {t("{n} months of sales", { n: months })} · {t(mode.label)}</span>
+          {saved ? <span className="chip chip-grey">{t("Approved by {name} · {date}", { name: userOf(d, saved.approvedBy).name, date: when(saved.at) })}</span> : null}
         </div>
+        {/* The six settings as cards: icon, value, and where it sits in the allowed range (● in use, | default). */}
+        <div className="fs-grid">
+          {SETTING_KEYS.map((k) => <SettingTile key={k} k={k} value={cfg[k]} dflt={typeDefaults(d.settings.businessType)[k]} />)}
+        </div>
+        <FsLegend />
+        <ErrorBars title={t("How accurate is the forecast?")} sub={t("Average error on {n} tests from your past sales · lower is better", { n: now.tests })}
+          rows={[{ label: t("Your forecast"), v: now.error, tone: "ai" }, { label: t("Simple 3-month guess"), v: now.baseline, tone: "grey" }]} />
         {saved?.explanation ? <div className="summary-box" style={{ marginTop: 12 }}><span className="eyebrow" style={{ color: "var(--ai-fg)" }}>{t("Why these settings")}</span><p className="ai-text" style={{ marginTop: 4 }}>{saved.explanation}</p></div> : null}
         {owner ? (
           <div className="row wrap" style={{ gap: 10, marginTop: 16 }}>
@@ -567,32 +574,31 @@ function ForecastSettings() {
             <span className="chip chip-ai" title={st.model || ""}><Icon n="spark" size={12} /> {edited ? t("Adjusted by you") : t("Suggested from your sales")}</span>
           </div>
           {st.explanation ? <div className="summary-box" style={{ marginTop: 0, marginBottom: 14 }}><span className="eyebrow" style={{ color: "var(--ai-fg)" }}>{t("Why these settings")}</span><p className="ai-text" style={{ marginTop: 4 }}>{st.explanation}</p></div> : null}
-          <div className="scroll-x"><table className="mini">
-            <thead><tr><th>{t("Setting")}</th><th className="right">{t("In use")}</th><th className="right">{t("Proposed")}</th><th className="right">{t("Allowed")}</th></tr></thead>
-            <tbody>{SETTING_KEYS.map((k) => {
-              const s = SETTINGS_UI[k], changed = edit[k] !== cfg[k], [lo, hi] = uiRange(k);
-              return (
-                <tr key={k} style={changed ? { background: "var(--ai-bg)" } : undefined}>
-                  <td>{label(k)}{changed ? <span className="chip chip-ai" style={{ marginTop: 4 }}>{t("changed")}</span> : null}</td>
-                  <td className="right num nowrap">{f(k, cfg[k])}</td>
-                  <td className="right">{owner
-                    ? <span className="unit-input"><input className="input" type="number" inputMode="numeric" min={lo} max={hi} step={s.step} aria-label={`${t(s.label)} (${s.unit === "%" ? "%" : t("days")})`}
-                        value={edit[k] === "" ? "" : s.toUi(edit[k])} onChange={(e) => setVal(k, e.target.value)} /><span className="unit">{s.unit === "%" ? "%" : t("days")}</span></span>
-                    : <span className="num bold nowrap">{f(k, edit[k])}</span>}
-                    {owner && k === "wmaWeight" && edit[k] !== "" ? <div className="faint small nowrap">{t("{b}% trend", { b: 100 - s.toUi(edit[k]) })}</div> : null}</td>
-                  <td className="right num faint nowrap">{rangeText(k)}</td>
-                </tr>
-              );
-            })}</tbody>
-          </table></div>
+          {/* Each setting: old → new, both marked on its range bar (○ now, ● proposed); the owner can still type a value. */}
+          <div className="fs-grid">
+            {SETTING_KEYS.map((k) => {
+              const s = SETTINGS_UI[k], [lo, hi] = uiRange(k);
+              return <SettingTile key={k} k={k} value={edit[k]} was={cfg[k]}
+                editor={owner ? <span className="unit-input"><input className="input" type="number" inputMode="numeric" min={lo} max={hi} step={s.step} aria-label={`${t(s.label)} (${s.unit === "%" ? "%" : t("days")})`}
+                  value={edit[k] === "" ? "" : s.toUi(edit[k])} onChange={(e) => setVal(k, e.target.value)} /><span className="unit">{s.unit === "%" ? "%" : t("days")}</span></span> : null} />;
+            })}
+          </div>
+          <FsLegend compare />
           {check && !check.ok ? <div className="notice red" style={{ marginTop: 12 }}><Icon n="warning" size={16} /><span>{check.errors.join(" ")}</span></div> : null}
           {after ? (
-            <div className="budget-tiles" style={{ marginTop: 14 }}>
-              <div className="btile"><DotIc ic="target" tone="grey" /><div className="stack"><span className="muted small">{t("Error now")}</span><span className="v">{pc(now.error)}</span></div></div>
-              <div className="btile"><DotIc ic="target" tone={better ? "green" : worse ? "red" : "ai"} /><div className="stack"><span className="muted small">{t("Error with proposal")}</span><span className="v">{pc(after.error)}</span></div></div>
-              <div className="btile"><DotIc ic="activity" tone="blue" /><div className="stack"><span className="muted small">{t("Simple 3-month average")}</span><span className="v">{pc(after.baseline)}</span></div></div>
+            <ErrorBars title={t("Forecast error on your past sales")} sub={t("Average of {n} tests · lower is better", { n: after.tests })} rows={[
+              { label: t("Error now"), v: now.error, tone: "grey" },
+              { label: t("Error with proposal"), v: after.error, tone: better ? "green" : worse ? "red" : "ai" },
+              { label: t("Simple 3-month average"), v: after.baseline, tone: "light" },
+            ]} />
+          ) : null}
+          {after ? (
+            <div className="acc-actions" style={{ marginTop: 10 }}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setProof(true)} data-testid="button-settings-proof"><Icon n="calc" size={14} /> {t("View calculation details")}</button>
+              <span className="muted small">{t("How these three error numbers were worked out, test by test.")}</span>
             </div>
           ) : null}
+          {proof && after ? <SettingsProof current={cfg} proposed={{ ...cfg, ...check.values }} onClose={() => setProof(false)} /> : null}
           {after ? <div className={`notice ${better ? "green" : worse ? "amber" : "blue"}`} style={{ marginTop: 12 }}><Icon n={better ? "check" : "info"} size={16} /><span>{better ? t("More accurate on your past months. Treat it as a guide, not a promise.") : worse ? t("Less accurate on your past months. We suggest keeping the current settings.") : t("Same accuracy on your past months; the change only affects safety stock, overstock or margin rules.")}</span></div> : null}
           {owner ? (
             <div className="row wrap" style={{ gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
@@ -606,6 +612,300 @@ function ForecastSettings() {
           </details>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+
+/* Accuracy audit cards and product-by-product worked forecasts. */
+/* Accuracy check audit trail: every number on the Accuracy screen with its basis, worked formulas and history.
+   All values come from explainAccuracy(d); nothing here re-derives the forecast. */
+
+
+
+
+
+
+
+const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "0");
+const Fm = ({ children }) => <div className="formula">{children}</div>;
+
+function useDialogKeys(onClose) {
+  const ref = useRef(onClose); ref.current = onClose;
+  useEffect(() => {
+    const trigger = document.activeElement;
+    const dialog = document.querySelector('[role="dialog"]');
+    dialog?.querySelector("button")?.focus();
+    const key = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); ref.current(); }
+      if (e.key === "Tab" && dialog) {
+        const c = [...dialog.querySelectorAll('button, input, select, a[href], [tabindex="0"]')].filter((el) => !el.disabled && el.getClientRects().length);
+        if (e.shiftKey && document.activeElement === c[0]) { e.preventDefault(); c.at(-1)?.focus(); }
+        else if (!e.shiftKey && document.activeElement === c.at(-1)) { e.preventDefault(); c[0]?.focus(); }
+      }
+    };
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("keydown", key); if (trigger?.isConnected) trigger.focus(); };
+  }, []);
+}
+
+/* Worked forecast for one held-out test: training months, 3:2:1 average, trend line, blend, comparison. */
+export function RowMath({ r, cfg, latest }) {
+  const { t, lang } = useApp();
+  const h = r.history, n = h.length, m = r.model, M = r.historyMonths.map((x) => monthName(lang, x));
+  const raw = cfg.wmaWeight * m.wma + cfg.trendWeight * m.lin;
+  const verdict = r.error <= 0.1 ? "Accurate" : r.error <= 0.2 ? "Close" : "Off";
+  return (
+    <div className="acc-math">
+      <div className="eyebrow">{t("Training months used (the tested month {m} is hidden)", { m: monthName(lang, r.month) })}</div>
+      <div className="scroll-x"><table className="mini"><thead><tr>{M.map((x, k) => <th key={k} className="right">{x}</th>)}<th className="right acc-held">{monthName(lang, r.month)}</th></tr></thead>
+        <tbody><tr>{h.map((v, k) => <td key={k} className="right num bold">{v}</td>)}<td className="right num acc-held">{t("hidden")}</td></tr></tbody></table></div>
+      <Fm>1. {t("Weighted last 3 months (3:2:1)")}: ({h[n - 1]}×3 + {h[n - 2]}×2 + {h[n - 3]}×1) ÷ 6 = <b>{f1(m.wma)}</b></Fm>
+       <Fm>2. {t("Trend line (least squares)")}: x = 0 … {n - 1}; x̄ = ({n} − 1) ÷ 2 = {(n - 1) / 2}; {t("average")} ȳ = ({h.join(" + ")}) ÷ {n} ≈ {f1(m.ym)}; slope = Σ((x − x̄)(y − ȳ)) ÷ Σ((x − x̄)²) ≈ {f1(m.slope)}<br />
+        {t("Next point")} = {f1(m.ym)} + {f1(m.slope)} × {f1(m.step)} = <b>{f1(m.lin)}</b></Fm>
+      <Fm>3. {t("Forecast")} = max(0, round({cfg.wmaWeight} × {f1(m.wma)} + {cfg.trendWeight} × {f1(m.lin)})) = max(0, round({f1(raw)})) = <b>{r.forecast}</b></Fm>
+      <Fm>4. {t("Really sold in {m} (recorded sales history)", { m: monthName(lang, r.month) })}: <b>{r.actual}</b> · {t("Difference")} = {r.forecast} − {r.actual} = <b>{signed(r.diff)}</b></Fm>
+      {r.zeroActual
+        ? <Fm>5. {t("Actual sales were 0, so a percentage cannot be divided by zero. The original engine records 0% here; this is not evidence of accuracy.")}</Fm>
+        : <Fm>5. {t("Error")} = |{signed(r.diff)}| ÷ {r.actual} × 100 = <b>{pct(r.error)}</b>{latest ? <> → {t(`verdict|${r.verdict || verdict}`)}</> : null}</Fm>}
+      <Fm>{t("Simple baseline")}: round(({h[n - 1]} + {h[n - 2]} + {h[n - 3]}) ÷ 3) = <b>{r.baseline}</b> · {t("Difference")} {signed(r.baselineDiff)}{r.zeroActual ? "" : <> · {t("Error")} {pct(r.baselineError)}</>}</Fm>
+    </div>
+  );
+}
+
+function Card({ id, title, value, basis, children, open, onToggle }) {
+  const { t } = useApp();
+  return (
+    <section className="acc-card" aria-labelledby={`acc-h-${id}`} data-accuracy-section={id}>
+      <div className="acc-card-top">
+        <div className="stack" style={{ minWidth: 0 }}><h3 id={`acc-h-${id}`}>{title}</h3><p className="muted small">{basis}</p></div>
+        <span className="acc-val num" data-testid={`text-acc-${id}`}>{value}</span>
+      </div>
+      <button type="button" className="cs-toggle" aria-expanded={!!open} aria-controls={`acc-b-${id}`} onClick={() => onToggle(id)} data-testid={`button-acc-${id}`}>
+        <Icon n="calc" size={14} /> {open ? t("Hide working") : t("Show working")} <Icon n={open ? "chevronUp" : "chevronDown"} size={14} />
+      </button>
+      {open ? <div id={`acc-b-${id}`} className="acc-body">{children}</div> : null}
+    </section>
+  );
+}
+
+function AccuracyDetails({ focusPid, onClose }) {
+  const { d, t, lang } = useApp();
+  useDialogKeys(onClose);
+  const x = explainAccuracy(d), cfg = x.config, L = x.latest, R = x.rolling;
+  const [open, setOpen] = useState(focusPid ? { products: true } : {});
+  const [rowOpen, setRowOpen] = useState(focusPid ? { [focusPid]: true } : {});
+  const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
+  const mn = (m) => monthName(lang, m);
+  const rows = L.rows;
+  const bestTies = L.best ? rows.filter((r) => r.error === L.best.error) : [];
+  const worstTies = L.worst ? rows.filter((r) => r.error === L.worst.error) : [];
+  const zeroLatest = rows.filter((r) => r.zeroActual);
+  const sumErr = rows.reduce((s, r) => s + r.error, 0), sumF = R.rows.reduce((s, r) => s + r.error, 0), sumB = R.rows.reduce((s, r) => s + r.baselineError, 0);
+  const focus = focusPid ? rows.find((r) => r.pid === focusPid) : null;
+
+  return (
+    <Modal title={focus ? t("Accuracy details: {name}", { name: focus.name }) : t("Accuracy calculation details")} size="wide" onClose={onClose}
+      foot={<button className="btn btn-primary" onClick={onClose} data-testid="button-acc-close">{t("Close")}</button>}>
+      <div className="notice blue" style={{ marginBottom: 14 }}><Icon n="info" size={16} /><span>{t("This is a historical backtest on your own sales, not a promise of future accuracy. Numbers are rounded for display only; averages are computed at full precision. The tested month never influences its own forecast.")}</span></div>
+      <p className="muted small" style={{ marginBottom: 14 }}>{t("Settings used: {a} × weighted average + {b} × trend line. Accurate ≤ 10% · Close ≤ 20% · Off > 20%. Within 15% includes exactly 15%.", { a: cfg.wmaWeight, b: cfg.trendWeight })}</p>
+
+       {!rows.length ? <div className="notice amber"><Icon n="warning" size={16} /><span>{t("Not enough data: no product has 4 months of sales yet, so there is nothing to test. This is not a 0% error.")}</span></div> : <div className={`acc-grid ${focus ? "acc-grid-focused" : ""}`}>
+        <Card id="average" open={open.average} onToggle={toggle} title={t("Average error")} value={pct(L.error)}
+          basis={t("Mean of each product's latest-month error, every product counted equally ({n} products).", { n: rows.length })}>
+          <Fm>({rows.map((r) => pct(r.error)).join(" + ")}) ÷ {rows.length} = {f1(sumErr * 100)}% ÷ {rows.length} = <b>{pct(L.error)}</b></Fm>
+          {zeroLatest.length ? <p className="small muted">{t("Includes {n} product(s) that sold 0 in the tested month, recorded as 0% by the engine convention, not because the forecast was right: {list}.", { n: zeroLatest.length, list: zeroLatest.map((r) => r.short).join(", ") })}</p> : null}
+        </Card>
+        <Card id="within" open={open.within} onToggle={toggle} title={t("Within 15%")} value={`${L.within} / ${rows.length}`}
+          basis={t("Products whose latest-month error is 15% or less (inclusive), out of every tested product.")}>
+          <ul className="acc-list">{rows.map((r) => <li key={r.pid}><span>{r.short}</span><span className="num">{pct(r.error)}</span><span className={`chip ${r.error <= 0.15 ? "chip-green" : "chip-grey"}`}>{r.error <= 0.15 ? t("Counted") : t("Not counted")}</span></li>)}</ul>
+        </Card>
+        <Card id="extremes" open={open.extremes} onToggle={toggle} title={t("Biggest and smallest miss")} value={`${L.worst.short} ${pct(L.worst.error)}`}
+          basis={t("Highest and lowest latest-month error among tested products.")}>
+          <p className="small"><b>{t("Biggest miss")}</b>: {worstTies.map((r) => `${r.short} ${pct(r.error)}`).join(", ")}{worstTies.length > 1 ? ` (${t("tie; the screen shows the first")})` : ""}</p>
+          <p className="small"><b>{t("Best")}</b>: {bestTies.map((r) => `${r.short} ${pct(r.error)}`).join(", ")}{bestTies.length > 1 ? ` (${t("tie; the screen shows the first")})` : ""}</p>
+          {L.best?.zeroActual ? <p className="small muted">{t("The best result comes from a month with 0 sales, so its 0% is a convention, not proof of accuracy.")}</p> : null}
+        </Card>
+        <Card id="lists" open={open.lists} onToggle={toggle} title={t("Under-forecast and Off lists")} value={`${L.under.length} · ${L.off.length}`}
+          basis={t("Under-forecast: forecast below actual and error above 10%. Off: error above 20%.")}>
+          <p className="small"><b>{t("Under-forecast")}</b>: {L.under.length ? L.under.map((r) => `${r.short} (${r.forecast} < ${r.actual}, ${pct(r.error)})`).join(", ") : t("none")}</p>
+          <p className="small"><b>{t("Off")}</b>: {L.off.length ? L.off.map((r) => `${r.short} (${pct(r.error)} > 20%)`).join(", ") : t("none")}</p>
+        </Card>
+        <Card id="rolling" open={open.rolling} onToggle={toggle} title={t("Rolling check")} value={R.tests ? `${pct(R.error)} vs ${pct(R.baseline)}` : t("Not enough data")}
+          basis={t("Every month with 3+ months before it, each product-month counted equally. Months with 0 sales are left out.")}>
+          {R.tests ? <>
+            <Fm>{t("Forecast")}: {f1(sumF * 100)}% ÷ {R.tests} {t("tests")} = <b>{pct(R.error)}</b> · {t("Simple baseline")}: {f1(sumB * 100)}% ÷ {R.tests} = <b>{pct(R.baseline)}</b></Fm>
+            <div className="scroll-x"><table className="mini" style={{ minWidth: 560 }}>
+              <thead><tr><th>{t("Product")}</th><th>{t("Month")}</th><th className="right">{t("Really sold")}</th><th className="right">{t("Forecast")}</th><th className="right">{t("Error")}</th><th className="right">{t("Baseline")}</th><th className="right">{t("Error")}</th></tr></thead>
+              <tbody>{R.rows.map((r) => <tr key={r.pid + r.testIndex} data-testid={`row-acc-rolling-${r.pid}-${r.testIndex}`}><td>{r.short}</td><td>{mn(r.month)}</td><td className="right num bold">{r.actual}</td><td className="right num">{r.forecast}</td><td className="right num">{pct(r.error)}</td><td className="right num">{r.baseline}</td><td className="right num">{pct(r.baselineError)}</td></tr>)}</tbody>
+            </table></div>
+            {R.excludedZero.length ? <p className="small muted">{t("Left out because 0 were sold (cannot divide by zero): {list}.", { list: R.excludedZero.map((r) => `${r.short} ${mn(r.month)}`).join(", ") })}</p> : null}
+            <details className="acc-det"><summary>{t("Show the forecast working for every rolling test")}</summary>
+              {R.rows.map((r) => <div key={r.pid + r.testIndex}><h4 className="small bold">{r.name} · {mn(r.month)}</h4><RowMath r={r} cfg={cfg} /></div>)}
+            </details>
+          </> : <p className="small">{t("Not enough data: no month has 3 months of sales before it with sales above 0. This is not a 0% error.")}</p>}
+        </Card>
+        <Card id="products" open={open.products} onToggle={toggle} title={t("Per-product latest check")} value={`${rows.length}`}
+          basis={t("Forecast, sales, difference, error and verdict for each product. Open a product for its full working.")}>
+          {rows.map((r) => (
+            <div key={r.pid} className="acc-prod">
+              <button type="button" className="acc-prod-btn" aria-expanded={!!rowOpen[r.pid]} onClick={() => setRowOpen((o) => ({ ...o, [r.pid]: !o[r.pid] }))} data-testid={`button-acc-product-${r.pid}`}>
+                <span className="bold">{r.name}</span>
+                <span className="num small">{r.forecast} vs {r.actual} · {signed(r.diff)} · {pct(r.error)}</span>
+                <span className={`chip ${r.verdict === "Accurate" ? "chip-green" : r.verdict === "Close" ? "chip-amber" : "chip-red"}`}>{t(`verdict|${r.verdict}`)}</span>
+                <Icon n={rowOpen[r.pid] ? "chevronUp" : "chevronDown"} size={14} />
+              </button>
+              {rowOpen[r.pid] ? <RowMath r={r} cfg={cfg} latest /> : null}
+            </div>
+          ))}
+        </Card>
+      </div>}
+      {x.insufficient.length ? <p className="small muted" style={{ marginTop: 12 }}>{t("Not tested (under 4 months of sales): {list}.", { list: x.insufficient.map((p) => `${p.name} (${p.months})`).join(", ") })}</p> : null}
+    </Modal>
+  );
+}
+
+/* Forecast settings: the working behind "Error now", "Error with proposal" and "Simple 3-month average".
+   Both settings are backtested on the same past months with the same code (explainAccuracy → backtestMulti),
+   so every figure here adds up to the tiles. Only the blend (recent months vs trend) changes the forecast;
+   safety stock, overstock and margin settings change what is bought, not the forecast error. */
+function SettingsProof({ current, proposed, onClose }) {
+  const { d, t, lang } = useApp();
+  useDialogKeys(onClose);
+  const pc1 = (x) => `${(x * 100).toFixed(1)}%`; // one decimal, like the tiles
+  const A = explainAccuracy(d, current).rolling, B = explainAccuracy(d, proposed).rolling;
+  const [open, setOpen] = useState({ products: true });
+  const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
+  const mn = (m) => monthName(lang, m);
+  const key = (r) => `${r.pid}-${r.testIndex}`;
+  const nextOf = Object.fromEntries(B.rows.map((r) => [key(r), r]));
+  const sum = (rows, k) => rows.reduce((s, r) => s + r[k], 0);
+  const tested = [...new Set(A.rows.map((r) => r.month))].map(mn);
+  const prods = d.products.map((p) => {
+    const a = A.rows.filter((r) => r.pid === p.id), b = B.rows.filter((r) => r.pid === p.id);
+    return a.length ? { p, n: a.length, now: sum(a, "error") / a.length, next: sum(b, "error") / b.length, base: sum(a, "baselineError") / a.length } : null;
+  }).filter(Boolean);
+  const blend = (c) => t("{a}% recent months + {b}% trend line", { a: Math.round(c.wmaWeight * 100), b: Math.round(c.trendWeight * 100) });
+  if (!A.tests) return <Modal title={t("How the error numbers were worked out")} onClose={onClose} foot={<button className="btn btn-primary" onClick={onClose}>{t("Close")}</button>}><p className="small">{t("Not enough data: no month has 3 months of sales before it with sales above 0. This is not a 0% error.")}</p></Modal>;
+  return (
+    <Modal title={t("How the error numbers were worked out")} size="wide" onClose={onClose}
+      foot={<button className="btn btn-primary" onClick={onClose} data-testid="button-proof-close">{t("Close")}</button>}>
+      <div className="notice blue" style={{ marginBottom: 14 }}><Icon n="info" size={16} /><span>{t("A backtest on your own past sales. For each of {months}, StockNow hides that month, forecasts it from the months before only, and compares with what really sold. {n} tests in total. It uses the same months the suggestion was based on, so treat it as a guide, not a promise.", { months: list(tested), n: A.tests })}</span></div>
+      <div className="scroll-x" style={{ marginBottom: 14 }}><table className="mini">
+        <thead><tr><th /><th>{t("Forecast blend used")}</th></tr></thead>
+        <tbody>
+          <tr><td className="bold">{t("Now")}</td><td>{blend(current)}</td></tr>
+          <tr><td className="bold">{t("Proposal")}</td><td>{blend(proposed)}</td></tr>
+          <tr><td className="bold">{t("Simple 3-month average")}</td><td>{t("average of the last 3 months, the usual manual guess")}</td></tr>
+        </tbody>
+      </table></div>
+      <div className="acc-grid">
+        <Card id="sp-now" open={open.now} onToggle={() => toggle("now")} title={t("Error now")} value={pc1(A.error)}
+          basis={t("Average error of all {n} tests with the current settings.", { n: A.tests })}>
+          <Fm>{t("Error of one test")} = |{t("forecast")} − {t("really sold")}| ÷ {t("really sold")}</Fm>
+          <Fm>({A.rows.map((r) => pc1(r.error)).join(" + ")}) ÷ {A.tests} = {f1(sum(A.rows, "error") * 100)}% ÷ {A.tests} = <b>{pc1(A.error)}</b></Fm>
+        </Card>
+        <Card id="sp-next" open={open.next} onToggle={() => toggle("next")} title={t("Error with proposal")} value={pc1(B.error)}
+          basis={t("The same {n} tests, forecast again with the proposed settings.", { n: B.tests })}>
+          <Fm>({B.rows.map((r) => pc1(r.error)).join(" + ")}) ÷ {B.tests} = {f1(sum(B.rows, "error") * 100)}% ÷ {B.tests} = <b>{pc1(B.error)}</b></Fm>
+        </Card>
+        <Card id="sp-base" open={open.base} onToggle={() => toggle("base")} title={t("Simple 3-month average")} value={pc1(A.baseline)}
+          basis={t("The same {n} tests, guessed as the average of the 3 months before.", { n: A.tests })}>
+          <Fm>({A.rows.map((r) => pc1(r.baselineError)).join(" + ")}) ÷ {A.tests} = {f1(sum(A.rows, "baselineError") * 100)}% ÷ {A.tests} = <b>{pc1(A.baseline)}</b></Fm>
+        </Card>
+        <Card id="sp-products" open={open.products} onToggle={() => toggle("products")} title={t("By product")} value={`${prods.length}`}
+          basis={t("Average error per product, so you can see where the proposal helps or hurts.")}>
+          <div className="scroll-x"><table className="mini" style={{ minWidth: 560 }}>
+            <thead><tr><th>{t("Product")}</th><th className="right">{t("Tests")}</th><th className="right">{t("Error now")}</th><th className="right">{t("Error with proposal")}</th><th className="right">{t("Simple 3-month average")}</th></tr></thead>
+            <tbody>
+              {prods.map((r) => <tr key={r.p.id}><td>{r.p.name}</td><td className="right num">{r.n}</td><td className="right num">{pc1(r.now)}</td><td className="right num bold">{pc1(r.next)}</td><td className="right num muted">{pc1(r.base)}</td></tr>)}
+              <tr><td className="bold">{t("All tests")}</td><td className="right num bold">{A.tests}</td><td className="right num bold">{pc1(A.error)}</td><td className="right num bold">{pc1(B.error)}</td><td className="right num bold">{pc1(A.baseline)}</td></tr>
+            </tbody>
+          </table></div>
+        </Card>
+        <Card id="sp-tests" open={open.tests} onToggle={() => toggle("tests")} title={t("Every test")} value={`${A.tests}`}
+          basis={t("Each product and month: what really sold, and each method's forecast and error.")}>
+          <div className="scroll-x"><table className="mini" style={{ minWidth: 640 }}>
+            <thead><tr><th>{t("Product")}</th><th>{t("Month")}</th><th className="right">{t("Really sold")}</th><th className="right">{t("Now")}</th><th className="right">{t("Proposal")}</th><th className="right">{t("Simple 3-month average")}</th></tr></thead>
+            <tbody>{A.rows.map((r) => { const b = nextOf[key(r)]; return (
+              <tr key={key(r)}><td>{r.short}</td><td>{mn(r.month)}</td><td className="right num bold">{r.actual}</td>
+                <td className="right num">{r.forecast} ({pc1(r.error)})</td><td className="right num bold">{b ? `${b.forecast} (${pc1(b.error)})` : "—"}</td><td className="right num muted">{r.baseline} ({pc1(r.baselineError)})</td></tr>); })}</tbody>
+          </table></div>
+          {A.excludedZero.length ? <p className="small muted">{t("Left out because 0 were sold (cannot divide by zero): {list}.", { list: A.excludedZero.map((r) => `${r.short} ${mn(r.month)}`).join(", ") })}</p> : null}
+          <details className="acc-det"><summary>{t("Show the forecast working for every test, now and with the proposal")}</summary>
+            {A.rows.map((r) => { const b = nextOf[key(r)]; return (
+              <div key={key(r)}>
+                <h4 className="small bold">{r.name} · {mn(r.month)} · {t("Now")}</h4><RowMath r={r} cfg={current} />
+                {b ? <><h4 className="small bold">{r.name} · {mn(r.month)} · {t("Proposal")}</h4><RowMath r={b} cfg={proposed} /></> : null}
+              </div>); })}
+          </details>
+        </Card>
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------- Forecast settings, drawn instead of written ---------- */
+const SETTING_ICON = { wmaWeight: "activity", safetyPct: "box", cautious: "down", sellWindow: "clock", overstockDays: "calendar", lowMargin: "coins" };
+
+/* One setting as a card: icon, name, value (old → new in a proposal) and a bar of the allowed range.
+   The help text is the card's tooltip, so the card itself stays short. */
+function SettingTile({ k, value, was, dflt, editor }) {
+  const { t } = useApp();
+  const { text: f } = useSettingText();
+  const s = SETTINGS_UI[k], [lo, hi] = uiRange(k), unit = s.unit === "%" ? "%" : ` ${t("days")}`;
+  const changed = was !== undefined && value !== "" && value !== was;
+  const pos = (v) => `${Math.min(100, Math.max(0, ((s.toUi(v) - lo) / (hi - lo)) * 100))}%`;
+  const short = (v) => (v === "" ? "—" : `${s.toUi(v)}${unit}`);
+  return (
+    <div className={`fs-tile ${changed ? "changed" : ""}`} title={t(s.help)}>
+      <div className="fs-top"><DotIc ic={SETTING_ICON[k]} tone={changed ? "ai" : "blue"} size={14} /><span className="fs-label">{t(s.label)}</span>{changed ? <span className="chip chip-ai">{t("changed")}</span> : null}</div>
+      <div className="fs-value num">{changed ? <><span className="fs-old">{short(was)}</span><span className="fs-arrow">→</span></> : null}<b>{short(value)}</b></div>
+      {k === "wmaWeight" && value !== "" ? (
+        <div className="fs-range" role="img" aria-label={f(k, value)}>
+          <div className="fs-split"><i style={{ width: `${s.toUi(value)}%` }} /></div>
+          <div className="fs-ends"><span className="fs-ai">{t("Recent months")} {s.toUi(value)}%</span><span>{t("Trend line")} {100 - s.toUi(value)}%</span></div>
+        </div>
+      ) : (
+        <div className="fs-range">
+          <div className="fs-track">
+            {dflt !== undefined ? <i className="fs-default" style={{ left: pos(dflt) }} title={t("Default")} /> : null}
+            {changed ? <i className="fs-dot fs-was" style={{ left: pos(was) }} /> : null}
+            {value !== "" ? <i className="fs-dot" style={{ left: pos(value) }} /> : null}
+          </div>
+          <div className="fs-ends"><span>{lo}{unit}</span><span>{hi}{unit}</span></div>
+        </div>
+      )}
+      {editor ? <div className="fs-edit">{editor}</div> : null}
+    </div>
+  );
+}
+
+function FsLegend({ compare = false }) {
+  const { t } = useApp();
+  return (
+    <div className="fs-legend">
+      {compare ? <span><i className="fs-dot fs-was static" /> {t("Now")}</span> : null}
+      <span><i className="fs-dot static" /> {t(compare ? "Proposed" : "In use")}</span>
+      {compare ? null : <span><i className="fs-default static" /> {t("Default")}</span>}
+      <span className="faint">{t("Hover a card to see what it does")}</span>
+    </div>
+  );
+}
+
+/* Forecast error as horizontal bars (lower is better), each with its number. */
+function ErrorBars({ title, sub, rows }) {
+  const max = Math.max(...rows.map((r) => r.v), 0.01);
+  return (
+    <div className="err-bars">
+      <div className="stack" style={{ marginBottom: 10 }}><span className="bold">{title}</span><span className="muted small">{sub}</span></div>
+      {rows.map((r) => (
+        <div className="err-row" key={r.label}>
+          <span className="err-label">{r.label}</span>
+          <div className="err-track"><i className={`tone-${r.tone}`} style={{ width: `${Math.max(2, (r.v / max) * 100)}%` }} /></div>
+          <span className="err-v num">{(r.v * 100).toFixed(1)}%</span>
+        </div>
+      ))}
     </div>
   );
 }

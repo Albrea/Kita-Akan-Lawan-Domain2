@@ -70,12 +70,12 @@ export default function Dashboard() {
   return (
     <>
       <div className="page-head">
-        <div><h1 className="page-title">{t("Dashboard")}</h1><p className="page-sub">{when(today())}</p></div>
+        <div><div className="page-kicker">{me.name}</div><h1 className="page-title">{t("Dashboard")}</h1><p className="page-sub">{when(today())}</p></div>
         {stock ? <button className="btn btn-ai" onClick={openPlan}><Icon n="spark" /> {t("Plan restock")}</button> : null}
       </div>
 
       {/* Tiles: Owner and Manager see all six; Inventory staff see stock; Finance staff see money. */}
-      <div className="stats">
+      <div className="stats-panel"><div className="stats">
         {show.has("products") ? <div className="stat t-blue"><div className="stat-label"><Icon n="box" size={15} /> {t("Total products")}</div><div className="stat-value">{d.products.length}</div><div className="stat-foot">{t("{n} pieces in stock", { n: num(d.products.reduce((s, p) => s + p.stock, 0)) })}</div></div> : null}
         {show.has("in") ? <div className="stat t-green"><div className="stat-label"><Icon n="in" size={15} /> {t("Stock in today")}</div><div className="stat-value">{num(inUnits)}</div><div className="stat-foot">{tp(ins.length, "{n} delivery received", "{n} deliveries received")}</div></div> : null}
         {show.has("out") ? <div className="stat t-amber"><div className="stat-label"><Icon n="out" size={15} /> {t("Stock out today")}</div><div className="stat-value">{num(outUnits)}</div><div className="stat-foot">{t("{n} sold", { n: num(soldUnits) })}{outUnits > soldUnits ? ` · ${t("{n} other", { n: num(outUnits - soldUnits) })}` : ""}</div></div> : null}
@@ -91,25 +91,23 @@ export default function Dashboard() {
         ) : null}
         {show.has("orders") ? <div className="stat t-blue"><div className="stat-label"><Icon n="truck" size={15} /> {t("Supplier orders open")}</div><div className="stat-value">{rm(openPOs(d).reduce((s, po) => s + poTotal(po), 0))}</div><div className="stat-foot">{tp(openPOs(d).length, "{n} order not delivered yet", "{n} orders not delivered yet")}</div></div> : null}
         {show.has("outOfStock") ? <div className="stat t-red stat-click" role="link" tabIndex={0} aria-label={t("Show out-of-stock products")} onClick={showOut} onKeyDown={(e) => { if (e.key === "Enter") showOut(); }}><div className="stat-label"><Icon n="warning" size={15} /> {t("Out of stock")}</div><div className="stat-value">{out.length}</div><div className="stat-foot">{t("{n} more running low", { n: low.length })}</div></div> : null}
-      </div>
+      </div></div>
 
-      <div className="card section">
+      <div className={`dash-grid ${stock ? "two" : ""}`}>
+      <div className="card">
         <div className="card-head">
           <div className="row" style={{ gap: 10 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="bell" /></span><h2 className="card-title">{t("To do today")}</h2><span className="chip chip-grey">{todo.length}</span></div>
         </div>
-        {todo.length ? todo.map((t) => (
+        {todo.length ? <div className="todo-list">{todo.map((t) => (
           <div className="todo" key={t.key}>
             <DotIc ic={t.ic} tone={t.tone} />
             <span className="stack"><span className="bold">{t.title}</span><span className="muted small">{t.sub}</span></span>
             <button className={`btn ${t.btnIc ? "btn-ghost-ai" : "btn-secondary"} btn-sm`} onClick={t.run}>{t.btnIc ? <Icon n={t.btnIc} size={14} /> : null} {t.btn}</button>
           </div>
-        )) : <Empty title={t("All clear")} text={t("Nothing needs you right now.")} ic="check" />}
+        ))}</div> : <Empty title={t("All clear")} text={t("Nothing needs you right now.")} ic="check" />}
       </div>
 
-      {/* Finance staff: where the money is, as two pie charts (the numbers are in the legend too). */}
-      {dept === "FINANCE" ? <FinanceCharts /> : null}
-
-      {stock ? <div className="card" id="needs-attention" ref={needsRef} style={{ scrollMarginTop: 16 }}>
+      {stock ? <div className="card" id="needs-attention" ref={needsRef} style={{ scrollMarginTop: 16, marginBottom: 0 }}>
         <div className="card-head">
           <h2 className="card-title">{t("Needs attention")}</h2>
           <div className="tabs">
@@ -135,6 +133,10 @@ export default function Dashboard() {
           </table></div>
         ) : <Empty title={t(tab === "low" ? "No low stock" : "Nothing is out of stock")} text={t("Products below their minimum appear here.")} ic="check" />}
       </div> : null}
+      </div>
+
+      {/* Finance staff: where the money is, as two pie charts (the numbers are in the legend too). */}
+      {dept === "FINANCE" ? <FinanceCharts /> : null}
     </>
   );
 }
