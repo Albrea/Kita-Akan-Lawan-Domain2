@@ -53,9 +53,16 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 
 - **AI Restock planner:** buy / wait / don't-buy for every product, fitted to the budget, with reasons, profit, ROI and confidence.
 - **Show calculation and Accuracy check:** every number can be traced, and the forecast is backtested on the shop's own sales.
+- **Adaptive forecast settings (AI Restock → Forecast settings):** Gemini reads summary statistics of the shop's sales (never the raw records) and proposes settings for the forecast, such as how much to trust recent months vs the long-term trend and how much safety stock to keep. StockNow checks the values stay in safe ranges, tests them on past months, and shows the error before and after. Nothing changes until an Owner or Manager approves. In our demo shop the approved settings cut the forecast error from 9.5% to 5.1%.
+- **Business profile (Settings → Business):** the business type (clothing, food & beverage, electronics, general retail) sets the starting forecast settings for shops with little sales history.
 - **Approval workflow:** Staff send, Owner/Manager approve per item. Nothing is ordered without a person.
 - **Supplier orders on WhatsApp:** one order per supplier, a message drafted by Gemini, chasing late deliveries, and receiving partial deliveries.
-- **Automatic triggers:** a low-stock alert after a stock out, a monthly plan drafted on the plan day, and a daily late-delivery check.
+- **Automatic stock out from Orbyte Payment:** when a customer pays through Orbyte Payment, StockNow records the stock out and the sale by itself. Unknown items or missing stock are handed to the Owner or a Manager to check, never guessed. Duplicates are ignored and refunds put the stock back (simulated in the demo; see [Orbyte Payment interface](#orbyte-payment-interface)).
+- **Automatic triggers:** a paid Orbyte order, a low-stock alert after a stock out, a monthly plan drafted on the plan day, and a daily late-delivery check.
+- **Undo for stock in and stock out:** adds an opposite entry instead of deleting, so the history and the activity log keep both. Staff can undo their own entries from today; the Owner or a Manager can undo any. Undoing a supplier delivery puts the quantity back on the order.
+- **Never lose your place on a delivery:** opening a supplier order (from the Dashboard, a pop-up or a PO code) takes you to it on Stock In and highlights it; quantities typed but not saved are marked, and a "Continue receiving" bar brings you back.
+- **Four languages:** English (default), Bahasa Melayu, Tamil and Chinese, chosen per device in Settings → Language.
+- **Real dates:** the app runs on today's date in Malaysia; the demo shop is moved to today when it is loaded, so "10 days late" or "lasts 3 days" stay true.
 - **Budget that adds up:** supplier orders and manual purchases use it; returns to a supplier refund it; customer returns reduce the day's sales.
 - **Roles:** Owner, Manager and Staff. Permissions are checked on the server, not only in the UI.
 - **Outage plan:** offline stock entry that syncs later, a backup copy, and paper/WhatsApp catch-up entry.
@@ -69,7 +76,7 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 | Frontend      | Next.js 15 (React 19), JavaScript, plain CSS, lucide-react icons                                                      |
 | Backend       | Next.js API routes (Node.js); restock engine in plain JavaScript (`lib/engine.js`)                                    |
 | Database      | Supabase (PostgreSQL), with a built-in in-memory demo store when Supabase is not configured                           |
-| AI            | Google Gemini API (`gemini-3.8-flash` by default, set with `GEMINI_MODEL`) for wording only, with a template fallback |
+| AI            | Google Gemini API (`gemini-3.5-flash` by default, set with `GEMINI_MODEL`; busy → `gemini-3.5-flash-lite`) for wording only, with a template fallback |
 | Hosting / Dev | Replit                                                                                                                |
 | Tests         | Vitest                                                                                                                |
 
@@ -92,8 +99,15 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 │   │   │   ├── ai                                     # Gemini endpoints (wording only, never numbers)
 │   │   │   │   ├── message                            # Supplier WhatsApp message
 │   │   │   │   │   └── route.js                       # Gemini rewords the order message (template fallback)
+│   │   │   │   ├── configure                          # AI Restock → Forecast settings
+│   │   │   │   │   └── route.js                       # Gemini proposes settings; checked + backtested
+│   │   │   │   ├── status                             # Settings → AI: test that Gemini answers
+│   │   │   │   │   └── route.js                       # One small Gemini call; reports model and result
 │   │   │   │   └── summary                            # AI restock plan summary
 │   │   │   │       └── route.js                       # Gemini explains the plan (template fallback)
+│   │   │   ├── orbyte                                 # Orbyte connections
+│   │   │   │   └── payment                            # Paid customer orders from Orbyte Payment
+│   │   │   │       └── route.js                       # Signed webhook → automatic stock out / refund
 │   │   │   └── state                                  # GET: load all shop data
 │   │   │       └── route.js                           # Returns data + storage mode + Gemini status
 │   │   ├── globals.css                                # All styles, responsive desktop + phone
@@ -107,9 +121,9 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 │   │   │   ├── Approvals.jsx                          # Owner approves plans, creates supplier orders
 │   │   │   ├── Dashboard.jsx                          # Alerts, budget left, stock overview
 │   │   │   ├── Products.jsx                           # Product list, stock levels, sales trend
-│   │   │   ├── Settings.jsx                           # Budget, demo data switcher, access, outage test
-│   │   │   ├── StockIn.jsx                            # Receive supplier deliveries into stock
-│   │   │   ├── StockOut.jsx                           # Record sales and stock going out
+│   │   │   ├── Settings.jsx                           # Budget, language, demo data, access, outage test
+│   │   │   ├── StockIn.jsx                            # Receive deliveries (PO highlight), undo entries
+│   │   │   ├── StockOut.jsx                           # Record sales; Orbyte Payment (simulated)
 │   │   │   ├── Suppliers.jsx                          # Supplier list and their orders
 │   │   │   └── Team.jsx                               # Team & access, Orbyte connections (simulated)
 │   │   ├── App.jsx                                    # App shell: sidebar, account switcher, shared state
@@ -117,24 +131,31 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 │   │   └── ui.jsx                                     # Small shared UI parts: icons, chips, modal, sparkline
 │   └── lib                                            # Logic shared by UI and server
 │       ├── server                                     # Server-only code (never sent to the browser)
-│       │   ├── gemini.js                              # Calls Gemini API via fetch + number check + fallback
+│       │   ├── gemini.js                              # Calls Gemini (retry once) + number check + fallback
 │       │   ├── http.js                                # JSON response helper (keeps Infinity values)
 │       │   ├── store.js                               # Saves/loads data: Supabase, or memory if not set
 │       │   └── tables.js                              # Maps app fields to Supabase table columns
 │       ├── actions.js                                 # Rules for every action + role permissions
 │       ├── engine.js                                  # AI forecast, restock plan, budget, backtest, eLeave routing
-│       ├── format.js                                  # Money/date formatting, demo date (2026-10-23)
+│       ├── forecast.js                                # Forecast settings: defaults, safe ranges, checks
+│       ├── format.js                                  # Money/date formatting, today's date in Malaysia
+│       ├── i18n.js                                    # Languages: lookup, dates and month names
+│       ├── i18n-dict.js                               # Screen text in Malay, Tamil and Chinese
 │       ├── messages.js                                # Supplier WhatsApp message templates
-│       └── seed.js                                    # Synthetic demo data (6 shop scenarios)
+│       └── seed.js                                    # Synthetic demo data (6 scenarios), moved to today
 ├── submission                                         # Hackathon submission documents
 │   ├── Replit Proof of Usage.pdf                      # Proof the app runs on Replit
 │   ├── SDC 2026_Kita Akan Lawan_Preliminary.pdf       # Preliminary proposal
 │   └── SDC 2026_Kita Akan Lawan_TechDeclaration.pdf   # Technology declaration
 ├── supabase                                           # Database setup
-│   └── schema.sql                                     # Paste into Supabase SQL Editor: creates 11 tables
+│   ├── schema.sql                                     # Paste into Supabase SQL Editor: creates 11 tables
+│   └── upgrade-final.sql                              # Run once if your tables existed before the final
 ├── tests                                              # Automated tests (Vitest)
-│   ├── actions.test.js                                # Tests action rules and permissions
+│   ├── actions.test.js                                # Tests actions, permissions, undo, Orbyte Payment
 │   ├── engine.test.js                                 # Tests forecast and restock plan
+│   ├── forecast.test.js                               # Tests forecast settings, approval, business types
+│   ├── gemini.test.js                                 # Tests Gemini use, retry, number check, fallback
+│   ├── setup.js                                       # Pins the test clock to 23 Oct 2026
 │   └── store.test.js                                  # Tests saving and loading data
 ├── .env.local.example                                 # Template for secret keys (copy to .env.local)
 ├── .gitignore                                         # Keeps .env, node_modules, .next off GitHub
@@ -144,7 +165,8 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 ├── jsconfig.json                                      # Path alias: @/ = src/
 ├── next.config.js                                     # Next.js settings
 ├── package-lock.json                                  # Exact dependency versions (auto-generated)
-└── package.json                                       # Dependencies and npm scripts (dev, build, start, test)
+├── package.json                                       # Dependencies and npm scripts (dev, build, start, test)
+└── vitest.config.js                                   # Test settings
 ```
 
 ### Architecture
@@ -209,6 +231,7 @@ Production build: `npm run build` then `npm run start`.
 2. Open **SQL Editor**, paste the contents of [`supabase/schema.sql`](supabase/schema.sql), and run it.
 3. Go to **Project Settings → API**. Copy the **Project URL** into `SUPABASE_URL` and the **service_role** key into `SUPABASE_SERVICE_ROLE_KEY`.
 4. Restart the app. On first start it fills the empty tables with the demo shop. Settings → Backup then shows **Supabase connected**.
+5. **Already created the tables before the final-round update?** Run [`supabase/upgrade-final.sql`](supabase/upgrade-final.sql) once in the SQL Editor. It allows the new "Orbyte payment needs a check" alert and adds 3 settings columns (business type, years in business, approved forecast settings). Your existing data is not changed. **Run it before deploying this version**, or saving will fail. To move an older demo shop to today's dates, pick any scenario in **Settings → Demo data**.
 
 The service_role key is only used on the server (API routes). The browser never talks to Supabase, and row-level security is on, so the public anon key can read nothing.
 
@@ -218,7 +241,7 @@ The service_role key is only used on the server (API routes). The browser never 
 npm test
 ```
 
-25 tests cover the forecast and plan (for example: Hoodie needs 191, confidence 94%, the plan never goes over budget), the budget rules, approvals and permissions, offline mode, the Gemini number guard, and the Supabase storage path (against a fake client).
+48 tests cover the forecast and plan (for example: Hoodie needs 191, confidence 94%, the plan never goes over budget), the budget rules, approvals and permissions, offline mode, undo, Orbyte Payment (duplicates, unknown items, refunds), the move to today's date, adaptive forecast settings (safe ranges, approval, business-type defaults), Gemini (its text is used, a busy server is retried, invented numbers are rejected), and the Supabase storage path (against a fake client). The tests pin the clock to 23 Oct 2026, so their numbers never depend on the day they run.
 
 ### Try the demo
 
@@ -228,6 +251,29 @@ There is no login page. Use the **account switcher** at the bottom of the sideba
 2. Switch to **John Tan (Owner)**: Approvals → **Approve & create orders** → **Send order** → **Open in WhatsApp**.
 3. Stock In → Supplier orders → **Receive stock** when it "arrives".
 4. AI Restock → **Accuracy check**, or change **Demo data** to see the AI react to a festive rush or an overstocked shop.
+5. Stock Out → **Simulate a customer payment**: the stock out is recorded by Orbyte Payment. Choose "An item StockNow doesn't know" to see it handed to the Owner on the Dashboard.
+6. Stock In or Stock Out → **Undo** on a recent entry, then open the Activity Log.
+7. Settings → **Language** → Bahasa Melayu, Tamil or Chinese.
+
+### Orbyte Payment interface
+
+There is no live Orbyte access in this challenge, so this is our interface assumption. The demo button on Stock Out sends the same event through the app.
+
+**Endpoint:** `POST /api/orbyte/payment`, signed with the shared secret `ORBYTE_WEBHOOK_SECRET`. The header is `x-orbyte-signature: sha256=<hex HMAC-SHA256 of the raw body>`. Unsigned or wrongly signed requests get `401` and change nothing; without the secret the endpoint is off (`503`).
+
+```json
+{ "event": "payment.succeeded", "paymentId": "PAY-1001", "channel": "in_store",
+  "items": [{ "sku": "TEE-CMB", "qty": 2 }, { "sku": "ACC-TOT", "qty": 1 }] }
+```
+
+| Situation | What StockNow does |
+| --- | --- |
+| Every SKU known and in stock | One stock out per line (reason "Orbyte Payment PAY-1001"), added to today's sales, logged under **Orbyte Payment** |
+| Unknown SKU, not enough stock, bad quantity | That line is **not** recorded. An alert asks the Owner or a Manager to check, with the reason; they close it with a note |
+| Same `paymentId` sent again | Ignored (`duplicate: true`), so retries are safe |
+| `"event": "payment.refunded"` | The items go back into stock and the sale is removed; a second refund is ignored |
+
+StockNow never moves money: it only reacts to the fact that a payment happened.
 
 ### Setup guide
 
@@ -245,7 +291,9 @@ There is no login page. Use the **account switcher** at the bottom of the sideba
 
 **Where the AI's data lives.** The 6 months of sales the forecast uses, the products, prices, stock and suppliers all come from [`src/lib/seed.js`](src/lib/seed.js) (synthetic). With Supabase connected they are copied into the tables (`sales_history`, `products`, …) and read from there. The AI's rules (safety stock 20%, overstock after 45 days, minimum margin 25%, …) are in `ENGINE` at the top of [`src/lib/engine.js`](src/lib/engine.js). You don't need to touch either file. To try other sales stories, use **Settings → Demo data** or the **Demo data** menu on the AI page.
 
-**Gemini model.** The default is `gemini-3.8-flash`, Google's recommended Flash model. Set `GEMINI_MODEL` to use another one (for example `gemini-3.5-flash-lite`). Gemini 2.5 models are not available to new API keys.
+**Gemini model.** The default is `gemini-3.5-flash`. Set `GEMINI_MODEL` to use another one. If the chosen model is overloaded, slow (12 s) or unavailable, StockNow automatically tries `gemini-3.5-flash`, then `gemini-3.5-flash-lite` (change the list with `GEMINI_FALLBACK_MODELS`). In our test on 31 Oct 2026, `gemini-3.8-flash` returned no text within 30 s and reported "high demand", while `gemini-3.5-flash` answered in 1–8 s and `gemini-3.5-flash-lite` in under 1 s. The label on each AI text shows, on hover, which model wrote it.
+
+**Check that Gemini works.** Open **Settings → AI (Gemini) → Test Gemini**. It makes one small call from the server and shows the model and the answer time, or Google's exact error (for example an invalid key or an unknown model). When Gemini writes a text, its label says **Written by Gemini**. If the built-in template is used instead, the label says why: *Gemini not set up* (no `GEMINI_API_KEY` on the server), *Gemini didn't answer* (error or timeout, after one retry), or *Gemini's numbers didn't match* (its reply used a number StockNow didn't calculate). After changing a key in Replit Secrets, redeploy so the server picks it up.
 
 **The `.replit` file.** Replit reads it automatically; you don't run it yourself.
 
@@ -262,7 +310,7 @@ There is no login page. Use the **account switcher** at the bottom of the sideba
 
 1. Push this project to GitHub.
 2. Replit → **Import → Choose 'GitHub'** → choose the repository. Replit detects `.replit`.
-3. **Tools → Secrets**: add `GEMINI_API_KEY`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (and `GEMINI_MODEL` if you want a different model).
+3. **Tools → Secrets**: add `GEMINI_API_KEY`, `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (and `GEMINI_MODEL` if you want a different model). `ORBYTE_WEBHOOK_SECRET` is only needed to receive real Orbyte Payment events.
 4. Press **Publish** and check the Webview.
 5. Enter your project name and wait for the configurations.
 6. Click on the **url** and your project is already deployed.
