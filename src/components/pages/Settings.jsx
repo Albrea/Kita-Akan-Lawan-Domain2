@@ -1,22 +1,25 @@
 "use client";
+import { useState } from "react";
 import { useApp } from "../App.jsx";
 import { DotIc, Icon, RoleChip, Select, Spark } from "../ui.jsx";
 import { budgetLeft, budgetParts, forecastFrom } from "@/lib/engine.js";
 import { PRODUCTS, SCENARIOS } from "@/lib/seed.js";
 import { ROLE_LABEL } from "@/lib/actions.js";
+import { LANGS } from "@/lib/i18n.js";
+import { BUSINESS_TYPES, historyMode } from "@/lib/forecast.js";
 import { initials, nowStamp, rm, toJSON } from "@/lib/format.js";
 
 export default function Settings() {
-  const { ui, setUi, can } = useApp();
+  const { ui, setUi, can, t } = useApp();
   const owner = can("manageAccess");
-  const tabs = [["categories", "Categories"], ...(owner ? [["budget", "Budget"]] : []), ["demo", "Demo data"], ["backup", "Backup"], ...(owner ? [["account", "Account"]] : [])];
-  const tab = tabs.some(([k]) => k === ui.settingsTab) ? ui.settingsTab : "categories";
-  const View = { categories: Categories, budget: Budget, demo: DemoData, backup: Backup, account: Access }[tab];
+  const tabs = [["language", "Language"], ["business", "Business"], ...(owner ? [["budget", "Budget"]] : []), ["categories", "Categories"], ["ai", "AI (Gemini)"], ["demo", "Demo data"], ["backup", "Backup"], ...(owner ? [["account", "Account"]] : [])];
+  const tab = tabs.some(([k]) => k === ui.settingsTab) ? ui.settingsTab : "language";
+  const View = { categories: Categories, budget: Budget, language: Language, business: BusinessProfile, ai: AiStatus, demo: DemoData, backup: Backup, account: Access }[tab];
   return (
     <>
       <div className="page-head">
-        <div><h1 className="page-title">Settings</h1><p className="page-sub">Categories, {owner ? "budget, " : ""}demo data, backup{owner ? " and who can open StockNow" : ""}.</p></div>
-        <div className="tabs">{tabs.map(([k, l]) => <button key={k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setUi({ settingsTab: k })}>{l}</button>)}</div>
+        <div><h1 className="page-title">{t("Settings")}</h1><p className="page-sub">{t(owner ? "Language, business, budget, categories, AI, demo data, backup and who can open StockNow." : "Language, business, categories, AI, demo data and backup.")}</p></div>
+        <div className="tabs">{tabs.map(([k, l]) => <button key={k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setUi({ settingsTab: k })}>{t(l)}</button>)}</div>
       </div>
       <View />
     </>
@@ -24,21 +27,21 @@ export default function Settings() {
 }
 
 function Categories() {
-  const { d, can, openModal, act } = useApp();
+  const { d, can, openModal, act, t } = useApp();
   const edit = can("manageCatalog");
-  const del = (c) => openModal("confirm", { title: `Delete category ${c.name}?`, body: "Only possible when no product uses it.", label: "Delete", danger: true, onOk: () => act("deleteCategory", { id: c.id }) });
+  const del = (c) => openModal("confirm", { title: t("Delete category {name}?", { name: c.name }), body: t("Only possible when no product uses it."), label: t("Delete"), danger: true, onOk: () => act("deleteCategory", { id: c.id }) });
   return (
     <div className="card" style={{ maxWidth: 640 }}>
-      <div className="card-head"><h2 className="card-title">Categories</h2>{edit ? <button className="btn btn-primary btn-sm" onClick={() => openModal("category")}><Icon n="plus" size={16} /> Add category</button> : <span className="chip chip-grey">View only</span>}</div>
+      <div className="card-head"><h2 className="card-title">{t("Categories")}</h2>{edit ? <button className="btn btn-primary btn-sm" onClick={() => openModal("category")}><Icon n="plus" size={16} /> {t("Add category")}</button> : <span className="chip chip-grey">{t("View only")}</span>}</div>
       <div className="scroll-x"><table>
-        <thead><tr><th>Category</th><th className="right">Products</th>{edit ? <th className="right">Actions</th> : null}</tr></thead>
+        <thead><tr><th>{t("Category")}</th><th className="right">{t("Products")}</th>{edit ? <th className="right">{t("Actions")}</th> : null}</tr></thead>
         <tbody>{d.categories.map((c) => (
           <tr key={c.id}>
             <td className="bold">{c.name}</td>
             <td className="right muted num">{d.products.filter((p) => p.cat === c.id).length}</td>
             {edit ? <td className="right" style={{ whiteSpace: "nowrap" }}>
-              <button className="icon-btn" aria-label={`Edit ${c.name}`} onClick={() => openModal("category", { id: c.id })}><Icon n="pencil" size={16} /></button>
-              <button className="icon-btn del" aria-label={`Delete ${c.name}`} onClick={() => del(c)}><Icon n="trash" size={16} /></button>
+              <button className="icon-btn" aria-label={t("Edit {name}", { name: c.name })} onClick={() => openModal("category", { id: c.id })}><Icon n="pencil" size={16} /></button>
+              <button className="icon-btn del" aria-label={t("Delete {name}", { name: c.name })} onClick={() => del(c)}><Icon n="trash" size={16} /></button>
             </td> : null}
           </tr>
         ))}</tbody>
@@ -48,7 +51,7 @@ function Categories() {
 }
 
 function Budget() {
-  const { d, openModal } = useApp();
+  const { d, openModal, t } = useApp();
   const mb = d.settings.monthlyBudget, b = budgetParts(d), left = budgetLeft(d);
   const row = (label, v, hint, sign) => (
     <div className="row" style={{ justifyContent: "space-between", padding: "12px 0", borderTop: "1px solid var(--divider)", gap: 12 }}>
@@ -58,34 +61,124 @@ function Budget() {
   return (
     <div className="card card-pad" style={{ maxWidth: 760 }}>
       <div className="row wrap" style={{ justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
-        <div className="stack"><span className="muted small">Monthly purchase budget</span><span className="stat-value" style={{ marginTop: 2, color: "var(--ai)" }}>{rm(mb)}</span></div>
-        <button className="btn btn-primary" onClick={() => openModal("budget")}><Icon n="wallet" size={16} /> Set monthly budget</button>
+        <div className="stack"><span className="muted small">{t("Monthly purchase budget")}</span><span className="stat-value" style={{ marginTop: 2, color: "var(--ai)" }}>{rm(mb)}</span></div>
+        <button className="btn btn-primary" onClick={() => openModal("budget")}><Icon n="wallet" size={16} /> {t("Set monthly budget")}</button>
       </div>
-      {row("Supplier orders", b.orders, "Orders created from approved AI plans this month", "− ")}
-      {row("Manual stock in", b.manual, "Stock bought outside an AI plan (quantity × cost price)", "− ")}
-      {row("Returned to supplier", b.refunds, "Refund for damaged stock sent back to a supplier", "+ ")}
-      <div className="row" style={{ justifyContent: "space-between", padding: "14px 0 0", borderTop: "1px solid var(--border)" }}><span className="bold">Left this month</span><span className="bold num" style={{ fontSize: 18, color: left > 0 ? "var(--green-fg)" : "var(--red-fg)" }}>{rm(left)}</span></div>
-      <div className="hint" style={{ marginTop: 12 }}>Sales and customer returns don&apos;t change the budget: sales are revenue, shown on the dashboard. AI drafts a plan from what&apos;s left on day {d.settings.planDay} of each month.</div>
+      {row(t("Supplier orders"), b.orders, t("Orders created from approved AI plans this month"), "− ")}
+      {row(t("Manual stock in"), b.manual, t("Stock bought outside an AI plan (quantity × cost price)"), "− ")}
+      {row(t("Returned to supplier"), b.refunds, t("Refund for damaged stock sent back to a supplier"), "+ ")}
+      <div className="row" style={{ justifyContent: "space-between", padding: "14px 0 0", borderTop: "1px solid var(--border)" }}><span className="bold">{t("Left this month")}</span><span className="bold num" style={{ fontSize: 18, color: left > 0 ? "var(--green-fg)" : "var(--red-fg)" }}>{rm(left)}</span></div>
+      <div className="hint" style={{ marginTop: 12 }}>{t("Sales and customer returns don't change the budget: sales are revenue, shown on the dashboard. AI drafts a plan from what's left on day {day} of each month.", { day: d.settings.planDay })}</div>
+    </div>
+  );
+}
+
+/* Screen language for this device. English is the default. */
+function Language() {
+  const { lang, setLang, t } = useApp();
+  return (
+    <div className="card card-pad" style={{ maxWidth: 760 }}>
+      <div className="row" style={{ gap: 8, marginBottom: 6 }}><span style={{ color: "var(--primary)", display: "flex" }}><Icon n="lang" /></span><h2 className="card-title">{t("Language")}</h2></div>
+      <p className="muted small" style={{ marginBottom: 16 }}>{t("Choose the language for menus, buttons and labels on this device. Each person can pick their own.")}</p>
+      <div className="lang-grid" role="radiogroup" aria-label={t("Language")}>
+        {LANGS.map(([k, name]) => (
+          <button key={k} role="radio" aria-checked={lang === k} lang={k} className={`lang-opt ${lang === k ? "on" : ""}`} onClick={() => setLang(k)}>
+            <span className="bold">{name}</span>
+            {k === "en" ? <span className="muted small">{t("Default")}</span> : null}
+            {lang === k ? <Icon n="check" size={16} sw={2.6} /> : null}
+          </button>
+        ))}
+      </div>
+      <div className="notice blue" style={{ marginTop: 16 }}><Icon n="info" size={16} /><span>{t("Product names, AI explanations, supplier messages and the activity log stay as they were written, so the record reads the same for everyone.")}</span></div>
+    </div>
+  );
+}
+
+/* Is Gemini working on the server? One real test call; the key itself never reaches the browser. */
+function AiStatus() {
+  const { meta, t } = useApp();
+  const [st, setSt] = useState(null);
+  async function test() {
+    setSt({ loading: true });
+    try { setSt(await (await fetch("/api/ai/status", { cache: "no-store" })).json()); }
+    catch { setSt({ ok: false, error: t("No connection to StockNow.") }); }
+  }
+  const row = (k, v) => <div className="row" style={{ justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid var(--divider)", gap: 12 }}><span className="muted">{k}</span><span className="bold">{v}</span></div>;
+  return (
+    <div className="card card-pad" style={{ maxWidth: 760 }}>
+      <div className="row wrap" style={{ justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+        <div className="row" style={{ gap: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="bot" /></span><h2 className="card-title">Gemini</h2></div>
+        <span className={`chip ${meta.gemini ? "chip-green" : "chip-amber"}`}>{t(meta.gemini ? "API key set on the server" : "No API key on the server")}</span>
+      </div>
+      <p className="muted small" style={{ marginBottom: 12 }}>{t("Gemini writes the restock summary and the supplier WhatsApp messages from StockNow's numbers. StockNow calculates every number itself, and checks that Gemini's text uses only those numbers.")}</p>
+      {row(t("Model"), <span className="mono">{meta.geminiModel || "—"}</span>)}
+      {row(t("If that model is busy"), <span className="mono">gemini-3.5-flash → gemini-3.5-flash-lite</span>)}
+      {row(t("If Gemini can't be used"), t("A built-in template writes the text, and the label says why"))}
+      <div className="row wrap" style={{ gap: 12, marginTop: 14 }}>
+        <button className="btn btn-ai" disabled={st?.loading} onClick={test}><Icon n="spark" size={16} /> {t(st?.loading ? "Testing…" : "Test Gemini")}</button>
+      </div>
+      {st && !st.loading ? (st.ok
+        ? <div className="notice green" style={{ marginTop: 14 }}><Icon n="check" size={16} /><span>{t("Gemini answered in {ms} ms using {model}. AI text in StockNow is written by Gemini.", { ms: st.ms, model: st.model })}{st.chosen && st.chosen !== st.model ? ` ${t("{chosen} was busy, so the backup model answered.", { chosen: st.chosen })}` : ""}</span></div>
+        : <div className="notice red" style={{ marginTop: 14 }}><Icon n="warning" size={16} /><span><b>{t("Gemini did not answer.")}</b> {st.error}</span></div>) : null}
+      <div className="notice blue" style={{ marginTop: 14 }}><Icon n="info" size={16} /><span>{t("To turn Gemini on, add GEMINI_API_KEY (from aistudio.google.com/apikey) to Replit Secrets or .env.local, and optionally GEMINI_MODEL. Then restart or redeploy, and press Test Gemini.")}</span></div>
+    </div>
+  );
+}
+
+/* What kind of business this is. It sets the starting forecast settings for shops with little sales history. */
+function BusinessProfile() {
+  const { d, can, act, go, setAi, t } = useApp();
+  const edit = can("forecastSettings");
+  const [f, setF] = useState({ businessType: d.settings.businessType || "clothing", businessYears: d.settings.businessYears ?? "" });
+  const [err, setErr] = useState({});
+  const months = d.settings.salesMonths.length, mode = historyMode(months);
+  async function save() {
+    const out = await act("setBusinessProfile", f);
+    if (!out.ok && out.fields) setErr(out.fields);
+  }
+  return (
+    <div className="card card-pad" style={{ maxWidth: 760 }}>
+      <div className="row" style={{ gap: 8, marginBottom: 6 }}><span style={{ color: "var(--primary)", display: "flex" }}><Icon n="store" /></span><h2 className="card-title">{t("Business profile")}</h2></div>
+      <p className="muted small" style={{ marginBottom: 16 }}>{t("Different businesses restock differently: food goes off quickly, electronics sell slowly. The business type sets the starting forecast settings until there is enough sales history.")}</p>
+      <div className="grid2">
+        <div className="field">
+          <label className="label" htmlFor="bp-type">{t("Business type")}</label>
+          <Select id="bp-type" value={f.businessType} disabled={!edit} error={!!err.businessType} onChange={(v) => setF((x) => ({ ...x, businessType: v }))} options={Object.entries(BUSINESS_TYPES).map(([k, x]) => [k, t(x.label)])} />
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="bp-years">{t("Years in business")}</label>
+          <input className={`input ${err.businessYears ? "error" : ""}`} id="bp-years" inputMode="numeric" disabled={!edit} value={f.businessYears} onChange={(e) => setF((x) => ({ ...x, businessYears: e.target.value.replace(/[^0-9]/g, "") }))} />
+          {err.businessYears ? <div className="hint err">{err.businessYears}</div> : null}
+        </div>
+        <div className="field span2">
+          <span className="label">{t("Sales history in StockNow")}</span>
+          <div className={`notice ${mode.key === "enough" ? "ai" : "amber"}`}><Icon n="activity" size={16} /><span><b>{t("{n} months", { n: months })} · {t(mode.label)}.</b> {t(mode.text)}</span></div>
+        </div>
+      </div>
+      <div className="row wrap" style={{ justifyContent: "space-between", gap: 10, marginTop: 18 }}>
+        <button className="btn btn-link" onClick={() => { setAi({ tab: "settings" }); go("ai"); }}>{t("Open forecast settings")} →</button>
+        {edit ? <button className="btn btn-primary" onClick={save}><Icon n="check" size={16} sw={2.2} /> {t("Save business profile")}</button> : <span className="chip chip-grey">{t("View only")}</span>}
+      </div>
     </div>
   );
 }
 
 function DemoData() {
-  const { d, switchScenario } = useApp();
+  const { d, switchScenario, t } = useApp();
   const cur = d.settings.scenario;
   return (
     <div className="stack" style={{ gap: 16, maxWidth: 1000 }}>
-      <div className="notice blue"><Icon n="info" size={16} /><span>Each scenario is the same shop with a different 6-month sales story (synthetic data). Pick one, then open AI Restock to see how the AI reacts. Switching resets the shop for everyone using this demo.</span></div>
+      <div className="notice blue"><Icon n="info" size={16} /><span>{t("Each scenario is the same shop with a different 6-month sales story (synthetic data). Pick one, then open AI Restock to see how the AI reacts. Switching resets the shop for everyone using this demo, with dates moved to today.")}</span></div>
       {Object.entries(SCENARIOS).map(([k, sc]) => (
         <div key={k} className="card card-pad" style={k === cur ? { borderColor: "var(--ai)", boxShadow: "0 0 0 2px var(--ai-br)" } : undefined}>
           <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", alignItems: "flex-start" }}>
-            <div className="stack" style={{ flex: 1, minWidth: 220 }}><span className="bold" style={{ fontSize: 15 }}>{sc.label}</span><span className="muted small">{sc.story}</span></div>
-            {k === cur ? <span className="chip chip-ai">In use</span> : <button className="btn btn-secondary btn-sm" onClick={() => switchScenario(k)}>Use this data</button>}
+            <div className="stack" style={{ flex: 1, minWidth: 220 }}><span className="bold" style={{ fontSize: 15 }}>{t(sc.label)}</span><span className="muted small">{t(sc.story)}</span></div>
+            {k === cur ? <span className="chip chip-ai">{t("In use")}</span> : <button className="btn btn-secondary btn-sm" onClick={() => switchScenario(k)}>{t("Use this data")}</button>}
           </div>
           <div className="row wrap" style={{ gap: "12px 18px", marginTop: 12 }}>
             {PRODUCTS.map((p) => <div key={p.id} className="stack" style={{ gap: 0 }}><span className="faint" style={{ fontSize: 11 }}>{p.short}</span><Spark s={sc.sales[p.id]} pred={forecastFrom(sc.sales[p.id]).forecast} w={86} h={26} /></div>)}
           </div>
-          <div className="notice ai" style={{ marginTop: 12 }}><Icon n="spark" size={14} /><span><b>What AI should do:</b> {sc.expect}</span></div>
+          <div className="notice ai" style={{ marginTop: 12 }}><Icon n="spark" size={14} /><span><b>{t("What AI should do:")}</b> {t(sc.expect)}</span></div>
         </div>
       ))}
     </div>
@@ -97,7 +190,7 @@ function copyText(text, onOk, onFail) {
 }
 
 function Backup() {
-  const { d, meta, ui, setUi, act, toast, offline, queue, toggleOffline } = useApp();
+  const { d, meta, ui, setUi, act, toast, offline, queue, toggleOffline, t } = useApp();
   const layers = [
     ["database", "blue", "1. Data is backed up", meta.mode === "supabase" ? "Stored in Supabase Postgres, which takes automatic daily backups." : "Demo mode: data is kept in server memory. Connect Supabase for permanent storage and daily backups."],
     ["offline", "amber", "2. Keep working offline", "Stock in and stock out keep working on the device and sync when the connection is back."],
@@ -107,11 +200,11 @@ function Backup() {
   const showBox = (text, msg) => { setUi({ backupText: text }); toast(msg); };
   const copyBackup = () => {
     const json = toJSON({ app: "StockNow", exportedAt: nowStamp(), ...d, requests: d.requests.map(({ result, ...r }) => r) });
-    copyText(json, () => toast("Backup copied. Paste it somewhere safe."), () => showBox(json, "Copy was blocked. The backup is in the box below: select it and copy."));
+    copyText(json, () => toast(t("Backup copied. Paste it somewhere safe.")), () => showBox(json, t("Copy was blocked. The backup is in the box below: select it and copy.")));
   };
   const copyTemplate = () => {
-    const t = `STOCK OUT NOTE · Date: __________\nOne line per sale: SKU  QTY  REASON\n\n${d.products.map((p) => `${p.sku.padEnd(9)} ___   (${p.short})`).join("\n")}\n\nLater, type the lines into StockNow → Settings → Backup → Catch-up entry.`;
-    copyText(t, () => toast("Note template copied. Print it or send it on WhatsApp."), () => showBox(t, "Copy was blocked. The template is in the box below: select it and copy."));
+    const tx = `STOCK OUT NOTE · Date: __________\nOne line per sale: SKU  QTY  REASON\n\n${d.products.map((p) => `${p.sku.padEnd(9)} ___   (${p.short})`).join("\n")}\n\nLater, type the lines into StockNow → Settings → Backup → Catch-up entry.`;
+    copyText(tx, () => toast(t("Note template copied. Print it or send it on WhatsApp.")), () => showBox(tx, t("Copy was blocked. The template is in the box below: select it and copy.")));
   };
   async function recordCatchUp() {
     const out = await act("catchUp", { text: ui.catchup });
@@ -122,36 +215,36 @@ function Backup() {
     <>
       <div className="section" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))", gap: 24 }}>
         <div className="card">
-          <div className="card-head"><h2 className="card-title">If StockNow goes down</h2><span className={`chip ${meta.mode === "supabase" ? "chip-green" : "chip-amber"}`}><Icon n="database" size={12} /> {meta.mode === "supabase" ? "Supabase connected" : "Demo memory store"}</span></div>
-          {layers.map(([ic, tone, t, desc]) => <div className="todo" key={t}><DotIc ic={ic} tone={tone} size={15} /><span className="stack"><span className="bold">{t}</span><span className="muted small">{desc}</span></span></div>)}
+          <div className="card-head"><h2 className="card-title">{t("If StockNow goes down")}</h2><span className={`chip ${meta.mode === "supabase" ? "chip-green" : "chip-amber"}`}><Icon n="database" size={12} /> {t(meta.mode === "supabase" ? "Supabase connected" : "Demo memory store")}</span></div>
+          {layers.map(([ic, tone, ti, desc]) => <div className="todo" key={ti}><DotIc ic={ic} tone={tone} size={15} /><span className="stack"><span className="bold">{t(ti)}</span><span className="muted small">{t(desc)}</span></span></div>)}
         </div>
         <div className="card card-pad stack" style={{ gap: 16 }}>
           <div>
-            <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}><span className="bold">Try an outage</span>{offline ? <span className="chip chip-amber">Offline (simulated)</span> : <span className="chip chip-green">Online</span>}</div>
-            <p className="muted small" style={{ margin: "6px 0 10px" }}>Turn it on, record a stock out, then come back online to see it sync.</p>
-            <button className={`btn ${offline ? "btn-primary" : "btn-secondary"}`} onClick={toggleOffline}><Icon n={offline ? "check" : "offline"} size={16} /> {offline ? `Back online${queue.length ? ` · sync ${queue.length}` : ""}` : "Simulate outage"}</button>
+            <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}><span className="bold">{t("Try an outage")}</span>{offline ? <span className="chip chip-amber">{t("Offline (simulated)")}</span> : <span className="chip chip-green">{t("Online")}</span>}</div>
+            <p className="muted small" style={{ margin: "6px 0 10px" }}>{t("Turn it on, record a stock out, then come back online to see it sync.")}</p>
+            <button className={`btn ${offline ? "btn-primary" : "btn-secondary"}`} onClick={toggleOffline}><Icon n={offline ? "check" : "offline"} size={16} /> {offline ? `${t("Back online")}${queue.length ? ` · ${t("sync {n}", { n: queue.length })}` : ""}` : t("Simulate outage")}</button>
           </div>
           <div style={{ borderTop: "1px solid var(--divider)", paddingTop: 16 }}>
-            <span className="bold">Backup copy</span>
-            <p className="muted small" style={{ margin: "6px 0 10px" }}>Everything in StockNow as one text file. Paste it into Google Drive or an email to keep your own copy.</p>
-            <button className="btn btn-secondary" onClick={copyBackup}><Icon n="copy" size={16} /> Copy backup</button>
-            {ui.backupText ? <textarea className="textarea mono" aria-label="Copy this text" readOnly rows={6} style={{ marginTop: 10 }} value={ui.backupText} onFocus={(e) => e.target.select()} /> : null}
+            <span className="bold">{t("Backup copy")}</span>
+            <p className="muted small" style={{ margin: "6px 0 10px" }}>{t("Everything in StockNow as one text file. Paste it into Google Drive or an email to keep your own copy.")}</p>
+            <button className="btn btn-secondary" onClick={copyBackup}><Icon n="copy" size={16} /> {t("Copy backup")}</button>
+            {ui.backupText ? <textarea className="textarea mono" aria-label={t("Copy this text")} readOnly rows={6} style={{ marginTop: 10 }} value={ui.backupText} onFocus={(e) => e.target.select()} /> : null}
           </div>
         </div>
       </div>
       <div className="card">
         <div className="card-head">
-          <div className="stack"><h2 className="card-title">Catch-up entry</h2><span className="muted small">Type in sales written on paper or sent on WhatsApp while StockNow was down.</span></div>
-          <button className="btn btn-secondary btn-sm" onClick={copyTemplate}><Icon n="copy" size={14} /> Copy note template</button>
+          <div className="stack"><h2 className="card-title">{t("Catch-up entry")}</h2><span className="muted small">{t("Type in sales written on paper or sent on WhatsApp while StockNow was down.")}</span></div>
+          <button className="btn btn-secondary btn-sm" onClick={copyTemplate}><Icon n="copy" size={14} /> {t("Copy note template")}</button>
         </div>
         <div className="card-pad grid2">
           <div className="field">
-            <label className="label" htmlFor="catchup">One line per item: SKU, quantity, optional reason</label>
+            <label className="label" htmlFor="catchup">{t("One line per item: SKU, quantity, optional reason")}</label>
             <textarea className="textarea mono" id="catchup" rows={6} placeholder={"OUT-HDE 3\nTEE-CMB 10 online"} value={ui.catchup} onChange={(e) => setUi({ catchup: e.target.value })} />
-            <div className="row" style={{ marginTop: 10 }}><button className="btn btn-primary" onClick={recordCatchUp}><Icon n="out" size={16} /> Record stock out</button></div>
+            <div className="row" style={{ marginTop: 10 }}><button className="btn btn-primary" onClick={recordCatchUp}><Icon n="out" size={16} /> {t("Record stock out")}</button></div>
           </div>
           <div className="stack" style={{ gap: 8 }}>
-            <span className="label">{ui.catchupResult ? "Result" : "SKUs in this shop"}</span>
+            <span className="label">{t(ui.catchupResult ? "Result" : "SKUs in this shop")}</span>
             {ui.catchupResult ? ui.catchupResult.map((x, k) => (
               <div key={k} className="row" style={{ gap: 8, alignItems: "flex-start" }}>
                 <DotIc ic={x.ok ? "check" : "close"} tone={x.ok ? "green" : "red"} size={13} />
@@ -166,33 +259,33 @@ function Backup() {
 }
 
 function Access() {
-  const { d, openModal, act } = useApp();
+  const { d, openModal, act, t } = useApp();
   const remove = (u) => openModal("confirm", {
-    title: `Remove ${u.name}'s access?`, body: "They stay in Orbyte Directory but can no longer open StockNow. Their past activity is kept.", label: "Remove access", danger: true,
+    title: t("Remove {name}'s access?", { name: u.name }), body: t("They stay in Orbyte Directory but can no longer open StockNow. Their past activity is kept."), label: t("Remove access"), danger: true,
     onOk: () => act("removeAccess", { id: u.id }),
   });
   return (
     <div className="card" style={{ maxWidth: 860 }}>
       <div className="card-head">
-        <div className="stack"><h2 className="card-title">StockNow access</h2><span className="muted small">Accounts live in Orbyte Directory. Choose who can open StockNow and their role.</span></div>
-        <button className="btn btn-primary btn-sm" disabled={!d.people.some((u) => !u.role)} onClick={() => openModal("grant")}><Icon n="plus" size={16} /> Give access</button>
+        <div className="stack"><h2 className="card-title">{t("StockNow access")}</h2><span className="muted small">{t("Accounts live in Orbyte Directory. Choose who can open StockNow and their role.")}</span></div>
+        <button className="btn btn-primary btn-sm" disabled={!d.people.some((u) => !u.role)} onClick={() => openModal("grant")}><Icon n="plus" size={16} /> {t("Give access")}</button>
       </div>
       <div className="scroll-x"><table style={{ minWidth: 620 }}>
-        <thead><tr><th>Person</th><th>Department</th><th>StockNow role</th><th className="right">Actions</th></tr></thead>
+        <thead><tr><th>{t("Person")}</th><th>{t("Department")}</th><th>{t("StockNow role")}</th><th className="right">{t("Actions")}</th></tr></thead>
         <tbody>{d.people.map((u) => (
           <tr key={u.id}>
             <td><span className="row" style={{ gap: 10 }}><span className="avatar" style={{ width: 30, height: 30, fontSize: 11 }}>{initials(u.name)}</span><span className="stack"><span className="bold">{u.name}</span><span className="faint small">{u.email}</span></span></span></td>
             <td className="muted">{u.dept}</td>
             <td>{u.role === "OWNER" ? <RoleChip role="OWNER" /> : u.role
-              ? <div style={{ width: 150 }}><Select id={`role-${u.id}`} cls="sm" label={`Role of ${u.name}`} value={u.role} onChange={(v) => act("changeRole", { id: u.id, role: v })} options={[["MANAGER", ROLE_LABEL.MANAGER], ["STAFF", ROLE_LABEL.STAFF]]} /></div>
-              : <span className="chip chip-grey">No access</span>}</td>
-            <td className="right">{u.role === "OWNER" ? <span className="faint small">Owner</span> : u.role
-              ? <button className="btn btn-secondary btn-sm" onClick={() => remove(u)}>Remove access</button>
-              : <button className="btn btn-link btn-sm" onClick={() => openModal("grant", { pid: u.id })}>Give access</button>}</td>
+              ? <div style={{ width: 150 }}><Select id={`role-${u.id}`} cls="sm" label={t("Role of {name}", { name: u.name })} value={u.role} onChange={(v) => act("changeRole", { id: u.id, role: v })} options={[["MANAGER", t(ROLE_LABEL.MANAGER)], ["STAFF", t(ROLE_LABEL.STAFF)]]} /></div>
+              : <span className="chip chip-grey">{t("No access")}</span>}</td>
+            <td className="right">{u.role === "OWNER" ? <span className="faint small">{t("Owner")}</span> : u.role
+              ? <button className="btn btn-secondary btn-sm" onClick={() => remove(u)}>{t("Remove access")}</button>
+              : <button className="btn btn-link btn-sm" onClick={() => openModal("grant", { pid: u.id })}>{t("Give access")}</button>}</td>
           </tr>
         ))}</tbody>
       </table></div>
-      <div className="table-foot">New people are added in Orbyte Directory, not here. Every change is recorded in the activity log.</div>
+      <div className="table-foot">{t("New people are added in Orbyte Directory, not here. Every change is recorded in the activity log.")}</div>
     </div>
   );
 }

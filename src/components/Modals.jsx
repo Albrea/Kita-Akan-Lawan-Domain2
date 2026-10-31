@@ -2,12 +2,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp, OFFLINE_MSG } from "./App.jsx";
 import { routeText } from "./pages/AiRestock.jsx";
-import { Bullets, FieldError, Icon, Modal, Select } from "./ui.jsx";
+import { AiSourceChip, Bullets, FieldError, Icon, Modal, Select } from "./ui.jsx";
 import {
-  ENGINE, analyse, budgetLeft, inPlan, lateDays, nameOfP, overridesOf, poOf, poTotal, productOf, reqOf, summaryBullets, supName, userOf,
+  analyse, budgetLeft, configOf, inPlan, lateDays, nameOfP, overridesOf, poOf, poTotal, productOf, reqOf, summaryBullets, supName, userOf,
 } from "@/lib/engine.js";
 import { chaseMessage, orderMessage } from "@/lib/messages.js";
-import { HORIZON, daysText, f1, fmtAt, plural, pct, rm, rm2, toJSON } from "@/lib/format.js";
+import { f1, pct, rm, rm2, toJSON } from "@/lib/format.js";
+import { monthName } from "@/lib/i18n.js";
 
 export default function Modals() {
   const { modal } = useApp();
@@ -32,11 +33,11 @@ function useForm(initial) {
   return { f, set, err, saving, submit };
 }
 
-const Cancel = () => { const { closeModal } = useApp(); return <button className="btn btn-secondary" onClick={closeModal}>Cancel</button>; };
+const Cancel = () => { const { closeModal, t } = useApp(); return <button className="btn btn-secondary" onClick={closeModal}>{t("Cancel")}</button>; };
 
 function SendModal() {
-  const { d, ui, setAi, act, closeModal } = useApp();
-  const r = ui.ai.result, t = r.t, s = ui.ai.summary;
+  const { d, ui, setAi, act, closeModal, t } = useApp();
+  const r = ui.ai.result, tt = r.t, s = ui.ai.summary;
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   async function send() {
@@ -47,36 +48,36 @@ function SendModal() {
     if (out.ok) { setAi({ phase: "idle", result: null, auto: false, filter: null, open: {}, summary: null }); closeModal(); }
   }
   return (
-    <Modal title="Send for approval" onClose={closeModal} foot={<><Cancel /><button className="btn btn-ai" disabled={saving} onClick={send}><Icon n="send" size={16} /> Send plan</button></>}>
+    <Modal title={t("Send for approval")} onClose={closeModal} foot={<><Cancel /><button className="btn btn-ai" disabled={saving} onClick={send}><Icon n="send" size={16} /> {t("Send plan")}</button></>}>
       <Bullets items={summaryBullets(d, r).slice(0, 3)} style={{ marginBottom: 16 }} />
       <div className="scroll-x"><table>
-        <thead><tr><th>Product</th><th className="right">Qty</th><th className="right">Cost</th><th className="right">Profit</th></tr></thead>
+        <thead><tr><th>{t("Product")}</th><th className="right">{t("Qty")}</th><th className="right">{t("Cost")}</th><th className="right">{t("Profit")}</th></tr></thead>
         <tbody>
-          {t.buy.map((i) => <tr key={i.pid}><td>{i.name}</td><td className="right num">{i.qty}</td><td className="right num">{rm(i.cost)}</td><td className="right num" style={{ color: "var(--green-fg)" }}>{rm(i.profit)}</td></tr>)}
-          <tr><td className="bold">Total</td><td /><td className="right bold num">{rm(t.cost)}</td><td className="right bold num" style={{ color: "var(--green-fg)" }}>{rm(t.profit)}</td></tr>
+          {tt.buy.map((i) => <tr key={i.pid}><td>{i.name}</td><td className="right num">{i.qty}</td><td className="right num">{rm(i.cost)}</td><td className="right num" style={{ color: "var(--green-fg)" }}>{rm(i.profit)}</td></tr>)}
+          <tr><td className="bold">{t("Total")}</td><td /><td className="right bold num">{rm(tt.cost)}</td><td className="right bold num" style={{ color: "var(--green-fg)" }}>{rm(tt.profit)}</td></tr>
         </tbody>
       </table></div>
       <div className="field" style={{ marginTop: 16 }}>
-        <label className="label" htmlFor="send-note">Note for the approver (optional)</label>
-        <textarea className="textarea" id="send-note" placeholder="e.g. Hoodies keep selling out on weekends." value={note} onChange={(e) => setNote(e.target.value)} />
+        <label className="label" htmlFor="send-note">{t("Note for the approver (optional)")}</label>
+        <textarea className="textarea" id="send-note" placeholder={t("e.g. Hoodies keep selling out on weekends.")} value={note} onChange={(e) => setNote(e.target.value)} />
       </div>
-      <div className="hint">{routeText(d)}</div>
+      <div className="hint">{routeText(d, t)}</div>
     </Modal>
   );
 }
 
 function RejectModal({ reqId }) {
-  const { d, act, closeModal } = useApp();
+  const { d, act, closeModal, t } = useApp();
   const req = reqOf(d, reqId);
   const { f, set, err, saving, submit } = useForm({ note: "" });
   if (!req) return null;
   const save = async () => { const out = await submit(() => act("rejectAll", { reqId, note: f.note })); if (out.ok) closeModal(); };
   return (
-    <Modal title={`Reject ${req.code}?`} size="sm" onClose={closeModal} foot={<><Cancel /><button className="btn btn-danger" disabled={saving} onClick={save}>Reject plan</button></>}>
-      <p className="muted" style={{ marginBottom: 14 }}>{userOf(d, req.by).name} will see your reason and can send a new plan.</p>
+    <Modal title={t("Reject {code}?", { code: req.code })} size="sm" onClose={closeModal} foot={<><Cancel /><button className="btn btn-danger" disabled={saving} onClick={save}>{t("Reject plan")}</button></>}>
+      <p className="muted" style={{ marginBottom: 14 }}>{t("{name} will see your reason and can send a new plan.", { name: userOf(d, req.by).name })}</p>
       <div className="field">
-        <label className="label" htmlFor="rej-note">Reason <span className="req">*</span></label>
-        <textarea className={`textarea ${err.note ? "error" : ""}`} id="rej-note" placeholder="e.g. Hold purchases until the year-end sale results." value={f.note} onChange={(e) => set("note", e.target.value)} />
+        <label className="label" htmlFor="rej-note">{t("Reason")} <span className="req">*</span></label>
+        <textarea className={`textarea ${err.note ? "error" : ""}`} id="rej-note" placeholder={t("e.g. Hold purchases until the year-end sale results.")} value={f.note} onChange={(e) => set("note", e.target.value)} />
         <FieldError msg={err.note} />
       </div>
     </Modal>
@@ -84,15 +85,15 @@ function RejectModal({ reqId }) {
 }
 
 function BudgetModal() {
-  const { d, act, closeModal } = useApp();
+  const { d, act, closeModal, t } = useApp();
   const { f, set, err, saving, submit } = useForm({ budget: String(d.settings.monthlyBudget) });
   const save = async () => { const out = await submit(() => act("setMonthlyBudget", { budget: f.budget })); if (out.ok) closeModal(); };
   return (
-    <Modal title="Monthly purchase budget" size="sm" onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>Save budget</button></>}>
+    <Modal title={t("Monthly purchase budget")} size="sm" onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>{t("Save budget")}</button></>}>
       <div className="field">
-        <label className="label" htmlFor="mb">Money set aside for buying stock each month (RM)</label>
+        <label className="label" htmlFor="mb">{t("Money set aside for buying stock each month (RM)")}</label>
         <input className={`input ${err.budget ? "error" : ""}`} id="mb" inputMode="numeric" autoFocus value={f.budget} onChange={(e) => set("budget", e.target.value.replace(/[^0-9]/g, ""))} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
-        {err.budget ? <FieldError msg={err.budget} /> : <div className="hint">Supplier orders and manual stock in use it up; stock returned to a supplier gives it back. Sales are revenue and don&apos;t refill it. AI plans with what&apos;s left, and drafts a plan automatically on day {d.settings.planDay}. StockNow never moves real money.</div>}
+        {err.budget ? <FieldError msg={err.budget} /> : <div className="hint">{t("Supplier orders and manual stock in use it up; stock returned to a supplier gives it back. Sales are revenue and don't refill it. AI plans with what's left, and drafts a plan automatically on day {day}. StockNow never moves real money.", { day: d.settings.planDay })}</div>}
       </div>
     </Modal>
   );
@@ -100,11 +101,11 @@ function BudgetModal() {
 
 /* AI drafts the WhatsApp text (Gemini, or the template); a person sends it. Opening WhatsApp counts as sending. */
 function MessageModal({ poId, msgKind }) {
-  const { d, me, act, closeModal, go, offline, toast } = useApp();
+  const { d, me, act, closeModal, go, offline, toast, t } = useApp();
   const po = poOf(d, poId);
   const kind = msgKind === "chase" ? "chase" : "order";
   const [text, setText] = useState(() => (po ? (kind === "order" ? orderMessage(d, po, me.name) : chaseMessage(d, po, me.name)) : ""));
-  const [source, setSource] = useState(offline ? "offline" : "loading");
+  const [source, setSource] = useState(offline ? { source: "offline" } : { loading: true });
   const edited = useRef(false);
   const area = useRef(null);
 
@@ -113,69 +114,93 @@ function MessageModal({ poId, msgKind }) {
     let live = true;
     fetch("/api/ai/message", { method: "POST", headers: { "Content-Type": "application/json" }, body: toJSON({ poId, kind, actorId: me.id }) })
       .then((r) => r.json())
-      .then((out) => { if (!live) return; if (out.text && !edited.current) setText(out.text); setSource(out.source || "template"); })
-      .catch(() => live && setSource("template"));
+      .then((out) => { if (!live) return; if (out.text && !edited.current) setText(out.text); setSource({ source: out.source || "template", reason: out.reason, note: out.note }); })
+      .catch(() => live && setSource({ source: "template", reason: "error", note: "No connection" }));
     return () => { live = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!po) return null;
   async function markSent() {
-    if (offline) return toast(OFFLINE_MSG, true);
+    if (offline) return toast(t(OFFLINE_MSG), true);
     const out = await act("markSent", { poId, kind });
-    if (out.ok) { closeModal(); go("stock-in", { stockInTab: "orders" }); }
+    if (out.ok) { closeModal(); go("stock-in", { stockInTab: "orders", focusPo: poId }); }
   }
   function openWhatsApp(e) {
     e.preventDefault();
-    if (offline) return toast(OFFLINE_MSG, true);
+    if (offline) return toast(t(OFFLINE_MSG), true);
     try { window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener"); } catch {}
     markSent();
   }
   function copy() {
-    const fallback = () => { area.current?.focus(); area.current?.select(); toast("Text selected. Press Ctrl+C to copy."); };
-    try { navigator.clipboard.writeText(text).then(() => toast("Message copied"), fallback); } catch { fallback(); }
+    const fallback = () => { area.current?.focus(); area.current?.select(); toast(t("Text selected. Press Ctrl+C to copy.")); };
+    try { navigator.clipboard.writeText(text).then(() => toast(t("Message copied")), fallback); } catch { fallback(); }
   }
-  const chip = source === "loading" ? "Gemini is writing…" : source === "gemini" ? "Written by Gemini" : source === "offline" ? "Offline: template" : "Template (Gemini off)";
   return (
-    <Modal title={kind === "order" ? `Send ${po.code} to ${supName(d, po.sup)}` : `Remind ${supName(d, po.sup)}`} onClose={closeModal}
-      foot={<><Cancel /><button className="btn btn-primary" onClick={markSent}><Icon n="check" size={16} sw={2.2} /> Mark as sent</button></>}>
+    <Modal title={kind === "order" ? t("Send {code} to {sup}", { code: po.code, sup: supName(d, po.sup) }) : t("Remind {sup}", { sup: supName(d, po.sup) })} onClose={closeModal}
+      foot={<><Cancel /><button className="btn btn-primary" onClick={markSent}><Icon n="check" size={16} sw={2.2} /> {t("Mark as sent")}</button></>}>
       <div className="row wrap" style={{ justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
-        <p className="muted" style={{ flex: 1, minWidth: 220 }}>{kind === "order" ? "AI wrote this from the approved order. Edit it if you like, then send it on WhatsApp." : `${po.code} is ${lateDays(po)} days late. AI drafted a polite reminder.`}</p>
-        <span className="chip chip-ai"><Icon n="bot" size={12} /> {chip}</span>
+        <p className="muted" style={{ flex: 1, minWidth: 220 }}>{kind === "order" ? t("AI wrote this from the approved order. Edit it if you like, then send it on WhatsApp.") : t("{code} is {n} days late. AI drafted a polite reminder.", { code: po.code, n: lateDays(po) })}</p>
+        <AiSourceChip s={source} />
       </div>
-      <textarea ref={area} className="textarea" rows={10} aria-label="Message" value={text} onChange={(e) => { edited.current = true; setText(e.target.value); }} />
+      <textarea ref={area} className="textarea" rows={10} aria-label={t("Message")} value={text} onChange={(e) => { edited.current = true; setText(e.target.value); }} />
       <div className="row wrap" style={{ marginTop: 12, gap: 8 }}>
-        <button className="btn btn-secondary btn-sm" onClick={copy}><Icon n="copy" size={14} /> Copy text</button>
-        <a className="btn btn-secondary btn-sm" href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" onClick={openWhatsApp}><Icon n="message" size={14} /> Open in WhatsApp</a>
+        <button className="btn btn-secondary btn-sm" onClick={copy}><Icon n="copy" size={14} /> {t("Copy text")}</button>
+        <a className="btn btn-secondary btn-sm" href={"https://wa.me/?text=" + encodeURIComponent(text)} target="_blank" rel="noopener noreferrer" onClick={openWhatsApp}><Icon n="message" size={14} /> {t("Open in WhatsApp")}</a>
       </div>
-      <div className="hint">Nothing is sent automatically. Opening WhatsApp (or Mark as sent, if you copied the text) records it and takes you to Supplier orders.</div>
+      <div className="hint">{t("Nothing is sent automatically. Opening WhatsApp (or Mark as sent, if you copied the text) records it and takes you to the order on Stock In.")}</div>
     </Modal>
   );
 }
 
 function PosCreatedModal({ reqId }) {
-  const { d, closeModal, openModal, go } = useApp();
+  const { d, closeModal, openModal, go, t, tp, when } = useApp();
   const req = reqOf(d, reqId);
   if (!req) return null;
   const pos = (req.poIds || []).map((id) => poOf(d, id)).filter(Boolean);
   return (
-    <Modal title={`${plural(pos.length, "supplier order")} created`} onClose={closeModal}
-      foot={<button className="btn btn-secondary" onClick={() => { closeModal(); go("stock-in", { stockInTab: "orders" }); }}>Go to supplier orders</button>}>
-      <p className="muted" style={{ marginBottom: 12 }}>{req.code} is approved. Budget left this month: <b>{rm(budgetLeft(d))}</b>. Stock goes up only when the delivery is received.</p>
+    <Modal title={tp(pos.length, "{n} supplier order created", "{n} supplier orders created")} onClose={closeModal}
+      foot={<button className="btn btn-secondary" onClick={() => { closeModal(); go("stock-in", { stockInTab: "orders", focusPo: pos[0]?.id || null }); }}>{t("Go to supplier orders")}</button>}>
+      <p className="muted" style={{ marginBottom: 12 }}>{t("{code} is approved. Budget left this month: {left}. Stock goes up only when the delivery is received.", { code: req.code, left: <b>{rm(budgetLeft(d))}</b> })}</p>
       {pos.map((po) => (
         <div key={po.id} className="row" style={{ padding: "12px 0", borderTop: "1px solid var(--divider)", flexWrap: "wrap" }}>
           <div className="stack" style={{ flex: 1, minWidth: 200 }}>
             <span className="bold"><span className="mono">{po.code}</span> · {supName(d, po.sup)}</span>
-            <span className="muted small">{po.items.map((i) => `${i.qty} × ${nameOfP(d, i.pid)}`).join(", ")} · {rm(poTotal(po))} · expected {fmtAt(po.expectedAt)}</span>
+            <span className="muted small">{po.items.map((i) => `${i.qty} × ${nameOfP(d, i.pid)}`).join(", ")} · {rm(poTotal(po))} · {t("expected {date}", { date: when(po.expectedAt) })}</span>
           </div>
-          {po.sentAt ? <span className="chip chip-green">Sent</span> : <button className="btn btn-primary btn-sm" onClick={() => openModal("message", { poId: po.id, msgKind: "order" })}><Icon n="send" size={14} /> Send order</button>}
+          {po.sentAt ? <span className="chip chip-green">{t("Sent")}</span> : <button className="btn btn-primary btn-sm" onClick={() => openModal("message", { poId: po.id, msgKind: "order" })}><Icon n="send" size={14} /> {t("Send order")}</button>}
         </div>
       ))}
     </Modal>
   );
 }
 
+/* An Orbyte payment StockNow could not match: a person checks it and writes what they found. */
+function PaymentModal({ alertId }) {
+  const { d, act, can, closeModal, t, when } = useApp();
+  const a = d.alerts.find((x) => x.id === alertId);
+  const { f, set, err, saving, submit } = useForm({ note: "" });
+  if (!a) return null;
+  const why = d.logs.find((l) => l.action === "ORBYTE_CHECK" && l.text.includes(a.poId));
+  const ok = can("approveAI") && a.open;
+  const save = async () => { const out = await submit(() => act("resolvePayment", { alertId, note: f.note })); if (out.ok) closeModal(); };
+  return (
+    <Modal title={t("Check Orbyte payment {id}", { id: a.poId })} onClose={closeModal}
+      foot={ok ? <><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}><Icon n="check" size={16} sw={2.2} /> {t("Mark as checked")}</button></> : <button className="btn btn-primary" onClick={closeModal}>{t("Close")}</button>}>
+      <p className="muted" style={{ marginBottom: 12 }}>{t("Received {date}. StockNow did not guess, so stock for these items was not changed.", { date: when(a.at) })}</p>
+      {why ? <div className="notice amber" style={{ marginBottom: 14 }}><Icon n="warning" size={16} /><span>{why.text}</span></div> : null}
+      {ok ? (
+        <div className="field">
+          <label className="label" htmlFor="pay-note">{t("What did you find?")} <span className="req">*</span></label>
+          <textarea className={`textarea ${err.note ? "error" : ""}`} id="pay-note" placeholder={t("e.g. Counted 3 on the shelf, recorded the stock out by hand.")} value={f.note} onChange={(e) => set("note", e.target.value)} />
+          {err.note ? <FieldError msg={err.note} /> : <div className="hint">{t("Saved in the activity log. Record any stock change on Stock Out.")}</div>}
+        </div>
+      ) : <div className="notice blue"><Icon n="info" size={16} /><span>{a.open ? t("The Owner or a Manager closes this check.") : t("This check is closed.")}</span></div>}
+    </Modal>
+  );
+}
+
 function ProductModal({ id }) {
-  const { d, act, closeModal } = useApp();
+  const { d, act, closeModal, t } = useApp();
   const p = id ? productOf(d, id) : null;
   const { f, set, err, saving, submit } = useForm(p
     ? { name: p.name, sku: p.sku, cat: p.cat, cost: String(p.cost), sell: String(p.sell), min: String(p.min), sup: p.sup || "" }
@@ -191,31 +216,31 @@ function ProductModal({ id }) {
     </div>
   );
   return (
-    <Modal title={p ? "Edit product" : "Create product"} onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>{p ? "Save changes" : "Create product"}</button></>}>
+    <Modal title={t(p ? "Edit product" : "Create product")} onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>{t(p ? "Save changes" : "Create product")}</button></>}>
       <div className="grid2">
-        {input("name", "Product name", { span: true, placeholder: "e.g. Ribbed Knit Cardigan" })}
+        {input("name", t("Product name"), { span: true, placeholder: t("e.g. Ribbed Knit Cardigan") })}
         {input("sku", "SKU", { mono: true, placeholder: "OUT-CRD", clean: (v) => v.toUpperCase() })}
-        <div className="field"><label className="label" htmlFor="p-cat">Category <span className="req">*</span></label><Select id="p-cat" value={f.cat} error={!!err.cat} onChange={(v) => set("cat", v)} options={d.categories.map((x) => [x.id, x.name])} /><FieldError msg={err.cat} /></div>
-        {input("cost", "Cost price (RM)", { inputMode: "decimal", placeholder: "35.00", clean: (v) => v.replace(/[^0-9.]/g, "") })}
-        {input("sell", "Selling price (RM)", { inputMode: "decimal", placeholder: "79.00", clean: (v) => v.replace(/[^0-9.]/g, ""), hint: c > 0 && s > 0 ? `Margin ${pct((s - c) / s)}` : "Margin is calculated automatically." })}
-        {input("min", "Minimum stock", { inputMode: "numeric", clean: (v) => v.replace(/[^0-9]/g, ""), hint: "AI treats stock below this as urgent." }, false)}
-        <div className="field"><label className="label" htmlFor="p-sup">Supplier</label><Select id="p-sup" value={f.sup} onChange={(v) => set("sup", v)} options={[["", "No supplier"], ...d.suppliers.map((x) => [x.id, x.name])]} /></div>
-        {p ? null : <div className="span2 hint">New products start at 0 stock. AI needs 3 months of sales before it can forecast them.</div>}
+        <div className="field"><label className="label" htmlFor="p-cat">{t("Category")} <span className="req">*</span></label><Select id="p-cat" value={f.cat} error={!!err.cat} onChange={(v) => set("cat", v)} options={d.categories.map((x) => [x.id, x.name])} /><FieldError msg={err.cat} /></div>
+        {input("cost", t("Cost price (RM)"), { inputMode: "decimal", placeholder: "35.00", clean: (v) => v.replace(/[^0-9.]/g, "") })}
+        {input("sell", t("Selling price (RM)"), { inputMode: "decimal", placeholder: "79.00", clean: (v) => v.replace(/[^0-9.]/g, ""), hint: c > 0 && s > 0 ? t("Margin {p}", { p: pct((s - c) / s) }) : t("Margin is calculated automatically.") })}
+        {input("min", t("Minimum stock"), { inputMode: "numeric", clean: (v) => v.replace(/[^0-9]/g, ""), hint: t("AI treats stock below this as urgent.") }, false)}
+        <div className="field"><label className="label" htmlFor="p-sup">{t("Supplier")}</label><Select id="p-sup" value={f.sup} onChange={(v) => set("sup", v)} options={[["", t("No supplier")], ...d.suppliers.map((x) => [x.id, x.name])]} /></div>
+        {p ? null : <div className="span2 hint">{t("New products start at 0 stock. AI needs 3 months of sales before it can forecast them.")}</div>}
       </div>
     </Modal>
   );
 }
 
 function CategoryModal({ id }) {
-  const { d, act, closeModal } = useApp();
+  const { d, act, closeModal, t } = useApp();
   const c = id ? d.categories.find((x) => x.id === id) : null;
   const { f, set, err, saving, submit } = useForm({ name: c?.name || "" });
   const save = async () => { const out = await submit(() => act("saveCategory", { id: c?.id, name: f.name })); if (out.ok) closeModal(); };
   return (
-    <Modal title={c ? "Edit category" : "Add category"} size="sm" onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>Save category</button></>}>
+    <Modal title={t(c ? "Edit category" : "Add category")} size="sm" onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>{t("Save category")}</button></>}>
       <div className="field">
-        <label className="label" htmlFor="c-name">Category name <span className="req">*</span></label>
-        <input className={`input ${err.name ? "error" : ""}`} id="c-name" autoFocus placeholder="e.g. Knitwear" value={f.name} onChange={(e) => set("name", e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+        <label className="label" htmlFor="c-name">{t("Category name")} <span className="req">*</span></label>
+        <input className={`input ${err.name ? "error" : ""}`} id="c-name" autoFocus placeholder={t("e.g. Knitwear")} value={f.name} onChange={(e) => set("name", e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
         <FieldError msg={err.name} />
       </div>
     </Modal>
@@ -223,53 +248,53 @@ function CategoryModal({ id }) {
 }
 
 function SupplierModal({ id }) {
-  const { d, act, closeModal } = useApp();
+  const { d, act, closeModal, t } = useApp();
   const s = id ? d.suppliers.find((x) => x.id === id) : null;
   const { f, set, err, saving, submit } = useForm(s ? { ...s, leadDays: String(s.leadDays) } : { name: "", contact: "", phone: "", leadDays: "5", note: "" });
   const save = async () => { const out = await submit(() => act("saveSupplier", { ...f, id: s?.id })); if (out.ok) closeModal(); };
   return (
-    <Modal title={s ? "Edit supplier" : "Add supplier"} onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>{s ? "Save changes" : "Add supplier"}</button></>}>
+    <Modal title={t(s ? "Edit supplier" : "Add supplier")} onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>{t(s ? "Save changes" : "Add supplier")}</button></>}>
       <div className="grid2">
-        <div className="field span2"><label className="label" htmlFor="s-name">Supplier name <span className="req">*</span></label><input className={`input ${err.name ? "error" : ""}`} id="s-name" value={f.name} onChange={(e) => set("name", e.target.value)} /><FieldError msg={err.name} /></div>
-        <div className="field"><label className="label" htmlFor="s-contact">Contact person</label><input className="input" id="s-contact" value={f.contact} onChange={(e) => set("contact", e.target.value)} /></div>
-        <div className="field"><label className="label" htmlFor="s-phone">Phone / WhatsApp <span className="req">*</span></label><input className={`input ${err.phone ? "error" : ""}`} id="s-phone" inputMode="tel" placeholder="+60 12-345 6789" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/[^0-9+ ()-]/g, ""))} />{err.phone ? <FieldError msg={err.phone} /> : <div className="hint">At least 10 digits.</div>}</div>
-        <div className="field"><label className="label" htmlFor="s-lead">Delivery time (days) <span className="req">*</span></label><input className={`input ${err.leadDays ? "error" : ""}`} id="s-lead" inputMode="numeric" value={f.leadDays} onChange={(e) => set("leadDays", e.target.value.replace(/[^0-9]/g, ""))} />{err.leadDays ? <FieldError msg={err.leadDays} /> : <div className="hint">Sets the expected date on orders.</div>}</div>
-        <div className="field"><label className="label" htmlFor="s-note">Note</label><input className="input" id="s-note" placeholder="What they supply" value={f.note} onChange={(e) => set("note", e.target.value)} /></div>
+        <div className="field span2"><label className="label" htmlFor="s-name">{t("Supplier name")} <span className="req">*</span></label><input className={`input ${err.name ? "error" : ""}`} id="s-name" value={f.name} onChange={(e) => set("name", e.target.value)} /><FieldError msg={err.name} /></div>
+        <div className="field"><label className="label" htmlFor="s-contact">{t("Contact person")}</label><input className="input" id="s-contact" value={f.contact} onChange={(e) => set("contact", e.target.value)} /></div>
+        <div className="field"><label className="label" htmlFor="s-phone">{t("Phone / WhatsApp")} <span className="req">*</span></label><input className={`input ${err.phone ? "error" : ""}`} id="s-phone" inputMode="tel" placeholder="+60 12-345 6789" value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/[^0-9+ ()-]/g, ""))} />{err.phone ? <FieldError msg={err.phone} /> : <div className="hint">{t("At least 10 digits.")}</div>}</div>
+        <div className="field"><label className="label" htmlFor="s-lead">{t("Delivery time (days)")} <span className="req">*</span></label><input className={`input ${err.leadDays ? "error" : ""}`} id="s-lead" inputMode="numeric" value={f.leadDays} onChange={(e) => set("leadDays", e.target.value.replace(/[^0-9]/g, ""))} />{err.leadDays ? <FieldError msg={err.leadDays} /> : <div className="hint">{t("Sets the expected date on orders.")}</div>}</div>
+        <div className="field"><label className="label" htmlFor="s-note">{t("Note")}</label><input className="input" id="s-note" placeholder={t("What they supply")} value={f.note} onChange={(e) => set("note", e.target.value)} /></div>
       </div>
     </Modal>
   );
 }
 
 function GrantModal({ pid }) {
-  const { d, act, closeModal } = useApp();
+  const { d, act, closeModal, t } = useApp();
   const free = d.people.filter((u) => !u.role);
   const { f, set, err, saving, submit } = useForm({ pid: pid || free[0]?.id || "", role: "STAFF" });
   const save = async () => { const out = await submit(() => act("grantAccess", f)); if (out.ok) closeModal(); };
   return (
-    <Modal title="Give StockNow access" size="sm" onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>Give access</button></>}>
+    <Modal title={t("Give StockNow access")} size="sm" onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>{t("Give access")}</button></>}>
       <div className="field" style={{ marginBottom: 16 }}>
-        <label className="label" htmlFor="g-p">Person from Orbyte Directory</label>
+        <label className="label" htmlFor="g-p">{t("Person from Orbyte Directory")}</label>
         <Select id="g-p" value={f.pid} error={!!err.pid} onChange={(v) => set("pid", v)} options={free.map((u) => [u.id, `${u.name} · ${u.dept}`])} />
         <FieldError msg={err.pid} />
       </div>
       <div className="field">
-        <label className="label" htmlFor="g-r">Role in StockNow</label>
-        <Select id="g-r" value={f.role} onChange={(v) => set("role", v)} options={[["STAFF", "Staff"], ["MANAGER", "Manager"]]} />
-        <div className="hint">{f.role === "MANAGER" ? "Can approve plans and manage products, categories and suppliers." : "Can record stock and send AI plans for approval."}</div>
+        <label className="label" htmlFor="g-r">{t("Role in StockNow")}</label>
+        <Select id="g-r" value={f.role} onChange={(v) => set("role", v)} options={[["STAFF", t("Staff")], ["MANAGER", t("Manager")]]} />
+        <div className="hint">{t(f.role === "MANAGER" ? "Can approve plans and manage products, categories and suppliers." : "Can record stock and send AI plans for approval.")}</div>
       </div>
     </Modal>
   );
 }
 
 function ConfirmModal({ title, body, label, danger, onOk }) {
-  const { closeModal } = useApp();
+  const { closeModal, t } = useApp();
   return (
     <div className="overlay" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
       <div className="modal sm" role="alertdialog" aria-modal="true" aria-label={title} style={{ padding: 22 }}>
         <h2 className="card-title">{title}</h2>
         <p className="muted" style={{ marginTop: 8 }}>{body}</p>
         <div className="row" style={{ justifyContent: "flex-end", marginTop: 22 }}>
-          <button className="btn btn-secondary" onClick={closeModal}>Cancel</button>
+          <button className="btn btn-secondary" onClick={closeModal}>{t("Cancel")}</button>
           <button className={`btn ${danger ? "btn-danger" : "btn-primary"}`} autoFocus onClick={() => { closeModal(); onOk(); }}>{label}</button>
         </div>
       </div>
@@ -279,23 +304,25 @@ function ConfirmModal({ title, body, label, danger, onOk }) {
 
 /* "Show calculation": every step of the AI's math for one product, with its real numbers. */
 function CalcModal({ pid }) {
-  const { d, ui, closeModal } = useApp();
+  const { d, ui, closeModal, t, days, lang } = useApp();
   const r = ui.ai.result || analyse(d, budgetLeft(d)), i = r.items.find((x) => x.pid === pid);
   if (!i) return null;
-  const g = i.g, f = g.f, s = g.series, n = s.length, M = d.settings.salesMonths.slice(-n);
+  const g = i.g, f = g.f, s = g.series, n = s.length, M = d.settings.salesMonths.slice(-n).map((m) => monthName(lang, m));
+  const ENGINE = configOf(d), win = Math.round(30 * ENGINE.sellWindow);
   const q = inPlan(i) ? i.qty : 0, sold = Math.min(q, i.sellable), sellWin = Math.round(g.forecast * ENGINE.sellWindow);
   const missPct = f.ym ? (f.rmse / f.ym) * 100 : 0;
   const raw = 97 - missPct * 2 - (g.trend === "Falling" ? 5 : 0) - (n < 6 ? 10 : 0);
-  const pen = `${g.trend === "Falling" ? " − 5 (demand falling)" : ""}${n < 6 ? " − 10 (under 6 months)" : ""}`;
+  const pen = `${g.trend === "Falling" ? ` − 5 (${t("demand falling")})` : ""}${n < 6 ? ` − 10 (${t("under 6 months")})` : ""}`;
+  const trend = t(g.trend).toLowerCase();
   const rules = [
-    ["Stock lasts 45+ days (incl. on order)", daysText(g.coverAll), g.coverAll >= ENGINE.overstockDays],
-    ["Margin below 25%", pct(g.margin), g.margin < ENGINE.lowMargin],
-    ["Demand falling and stock at or above minimum", `${g.trend.toLowerCase()} · ${i.stock} vs min ${i.min}`, g.trend === "Falling" && i.stock >= i.min],
-    ["Nothing needed", `need ${i.need}`, i.need === 0],
+    [t("Stock lasts {n}+ days (incl. on order)", { n: ENGINE.overstockDays }), days(g.coverAll), g.coverAll >= ENGINE.overstockDays],
+    [t("Margin below {p}", { p: pct(ENGINE.lowMargin) }), pct(g.margin), g.margin < ENGINE.lowMargin],
+    [t("Demand falling and stock at or above minimum"), `${trend} · ${t("{a} vs min {b}", { a: i.stock, b: i.min })}`, g.trend === "Falling" && i.stock >= i.min],
+    [t("Nothing needed"), t("need {n}", { n: i.need }), i.need === 0],
   ];
-  const parts = [[`Urgency: stock lasts ${daysText(g.cover)}`, g.cover < 7 ? 40 : g.cover < 14 ? 30 : g.cover < 30 ? 15 : 5], ["Below minimum stock", i.stock < i.min ? 10 : 0], ["Out of stock", i.stock === 0 ? 10 : 0],
-    [`Trend: ${g.trend.toLowerCase()}${g.trend === "Rising" ? ` (+${pct(g.growth)})` : ""}`, g.trend === "Rising" ? 10 + Math.min(15, g.growth * 15) : g.trend === "Falling" ? -10 : 0],
-    [`Margin ${pct(g.margin)} × 30`, g.margin * 30], [`Confidence (${g.conf} − 50) ÷ 5`, (g.conf - 50) / 5]];
+  const parts = [[t("Urgency: stock lasts {days}", { days: days(g.cover) }), g.cover < 7 ? 40 : g.cover < 14 ? 30 : g.cover < 30 ? 15 : 5], [t("Below minimum stock"), i.stock < i.min ? 10 : 0], [t("Out of stock"), i.stock === 0 ? 10 : 0],
+    [`${t("Trend")}: ${trend}${g.trend === "Rising" ? ` (+${pct(g.growth)})` : ""}`, g.trend === "Rising" ? 10 + Math.min(15, g.growth * 15) : g.trend === "Falling" ? -10 : 0],
+    [`${t("Margin")} ${pct(g.margin)} × 30`, g.margin * 30], [`${t("Confidence")} (${g.conf} − 50) ÷ 5`, (g.conf - 50) / 5]];
   const ranked = r.items.filter((x) => x.decision === "BUY").sort((a, b) => b.score - a.score), rank = ranked.findIndex((x) => x.pid === i.pid) + 1;
   const rawNeed = i.demandPlan + i.safety - i.stock - g.incoming;
   const Step = ({ k, title, children }) => <div className="calc-step"><span className="calc-n">{k}</span><div className="stack" style={{ gap: 6, minWidth: 0 }}><h4>{title}</h4>{children}</div></div>;
@@ -306,68 +333,68 @@ function CalcModal({ pid }) {
     <div className="scroll-x"><table className="mini"><thead><tr>{M.map((m) => <th key={m} className="right">{m}</th>)}</tr></thead><tbody><tr>{s.map((v, k) => <td key={k} className="right num">{v}</td>)}</tr></tbody></table></div>
   );
   return (
-    <Modal title={`How AI calculated: ${i.name}`} size="wide" onClose={closeModal} foot={<button className="btn btn-primary" onClick={closeModal}>Close</button>}>
-      <Step k={1} title={`Forecast sales for ${HORIZON}`}>
+    <Modal title={t("How AI calculated: {name}", { name: i.name })} size="wide" onClose={closeModal} foot={<button className="btn btn-primary" onClick={closeModal}>{t("Close")}</button>}>
+      <Step k={1} title={t("Forecast sales for the next 30 days")}>
         {months}
-        <Fm>Recent months count more: ({s[n - 1]}×3 + {s[n - 2]}×2 + {s[n - 3]}×1) ÷ 6 = <B>{f1(f.wma)}</B></Fm>
-        <Fm>Trend line: sales change {f.slope >= 0 ? "+" : "−"}{f1(Math.abs(f.slope))} a month → average {f1(f.ym)} + ({f1(f.slope)} × {f1(f.step)}) = <B>{f1(f.lin)}</B></Fm>
-        <Fm>Forecast = ({f1(f.wma)} + {f1(f.lin)}) ÷ 2 = <B>{g.forecast} pieces</B></Fm>
-        <Note>Two methods balance each other: the weighted average reacts to the latest months, the trend line follows the direction.</Note>
+        <Fm>{t("Recent months count more")}: ({s[n - 1]}×3 + {s[n - 2]}×2 + {s[n - 3]}×1) ÷ 6 = <B>{f1(f.wma)}</B></Fm>
+        <Fm>{t("Trend line: sales change {x} a month", { x: `${f.slope >= 0 ? "+" : "−"}${f1(Math.abs(f.slope))}` })} → {t("average")} {f1(f.ym)} + ({f1(f.slope)} × {f1(f.step)}) = <B>{f1(f.lin)}</B></Fm>
+        <Fm>{t("Forecast")} = {ENGINE.wmaWeight} × {f1(f.wma)} + {ENGINE.trendWeight} × {f1(f.lin)} = <B>{t("{n} pieces", { n: g.forecast })}</B></Fm>
+        <Note>{t("Two methods balance each other: the weighted average reacts to the latest months, the trend line follows the direction.")}</Note>
       </Step>
-      <Step k={2} title="How long current stock lasts">
+      <Step k={2} title={t("How long current stock lasts")}>
         {g.daily > 0 ? <>
-          <Fm>{g.forecast} ÷ 30 days = <B>{g.daily.toFixed(1)} sold a day</B></Fm>
-          <Fm>{i.stock} in stock ÷ {g.daily.toFixed(1)} = <B>{i.stock === 0 ? "already empty" : daysText(g.cover)}</B>{g.incoming ? ` · with ${g.incoming} on order: ${daysText(g.coverAll)}` : ""}</Fm>
-        </> : <Note>No recent sales, so this stock never runs out.</Note>}
+          <Fm>{g.forecast} ÷ 30 = <B>{t("{n} sold a day", { n: g.daily.toFixed(1) })}</B></Fm>
+          <Fm>{t("{n} in stock", { n: i.stock })} ÷ {g.daily.toFixed(1)} = <B>{i.stock === 0 ? t("already empty") : days(g.cover)}</B>{g.incoming ? ` · ${t("with {n} on order: {days}", { n: g.incoming, days: days(g.coverAll) })}` : ""}</Fm>
+        </> : <Note>{t("No recent sales, so this stock never runs out.")}</Note>}
       </Step>
-      <Step k={3} title="Safety stock, in case sales jump"><Fm>Larger of: minimum {i.min}, or 20% × {g.forecast} = {Math.ceil(g.forecast * ENGINE.safetyPct)} → <B>{i.safety}</B></Fm></Step>
-      <Step k={4} title="How many to buy">
-        {g.trend === "Falling" ? <Fm>Demand is falling, so plan only 70%: {g.forecast} × 0.7 = <B>{i.demandPlan}</B></Fm> : null}
-        <Fm>{i.demandPlan} to sell + {i.safety} safety − {i.stock} in stock − {g.incoming} on order = <B>{i.need}</B>{rawNeed < 0 ? ` (${rawNeed} is below zero, so 0)` : ""}</Fm>
-        {i.decision === "BUY" && inPlan(i) && i.qty < i.need ? <Note>The budget covered <b>{i.qty}</b> of the {i.need}.</Note> : null}
-        {i.decision === "BUY" && !inPlan(i) ? <Note>Not in this plan: the budget went to items with a higher priority (step 9).</Note> : null}
-        {i.decision === "DO_NOT_BUY" ? <Note>Not bought because of a rule in step 6.</Note> : null}
+      <Step k={3} title={t("Safety stock, in case sales jump")}><Fm>{t("Larger of: minimum {min}, or {p} × {f} = {x}", { min: i.min, p: pct(ENGINE.safetyPct), f: g.forecast, x: Math.ceil(g.forecast * ENGINE.safetyPct) })} → <B>{i.safety}</B></Fm></Step>
+      <Step k={4} title={t("How many to buy")}>
+        {g.trend === "Falling" ? <Fm>{t("Demand is falling, so plan only {p}", { p: pct(ENGINE.cautious) })}: {g.forecast} × {ENGINE.cautious} = <B>{i.demandPlan}</B></Fm> : null}
+        <Fm>{t("{a} to sell + {b} safety − {c} in stock − {d} on order", { a: i.demandPlan, b: i.safety, c: i.stock, d: g.incoming })} = <B>{i.need}</B>{rawNeed < 0 ? ` (${t("{n} is below zero, so 0", { n: rawNeed })})` : ""}</Fm>
+        {i.decision === "BUY" && inPlan(i) && i.qty < i.need ? <Note>{t("The budget covered {a} of the {b}.", { a: <b>{i.qty}</b>, b: i.need })}</Note> : null}
+        {i.decision === "BUY" && !inPlan(i) ? <Note>{t("Not in this plan: the budget went to items with a higher priority (step 9).")}</Note> : null}
+        {i.decision === "DO_NOT_BUY" ? <Note>{t("Not bought because of a rule in step 6.")}</Note> : null}
       </Step>
-      <Step k={5} title="Margin: profit per piece"><Fm>({rm2(i.sell)} − {rm2(i.unitCost)}) ÷ {rm2(i.sell)} = <B>{pct(g.margin)}</B> · {rm2(i.sell - i.unitCost)} per piece</Fm></Step>
-      <Step k={6} title="Buy or not? Four rules">
-        <div className="scroll-x"><table className="mini"><thead><tr><th>Skip if…</th><th>This product</th><th>Result</th></tr></thead>
-          <tbody>{rules.map(([k, v, hit]) => <tr key={k}><td>{k}</td><td className="num">{v}</td><td>{hit ? <span className="chip chip-red">Skip</span> : <span className="chip chip-green">OK</span>}</td></tr>)}</tbody></table></div>
-        <div className="row" style={{ gap: 8 }}><span className="muted small">Decision:</span>{i.decision === "DO_NOT_BUY" ? <span className="chip chip-red">Don&apos;t buy</span> : inPlan(i) ? <span className="chip chip-green">Buy</span> : <span className="chip chip-amber">Buy, waiting for budget</span>}</div>
+      <Step k={5} title={t("Margin: profit per piece")}><Fm>({rm2(i.sell)} − {rm2(i.unitCost)}) ÷ {rm2(i.sell)} = <B>{pct(g.margin)}</B> · {t("{x} per piece", { x: rm2(i.sell - i.unitCost) })}</Fm></Step>
+      <Step k={6} title={t("Buy or not? Four rules")}>
+        <div className="scroll-x"><table className="mini"><thead><tr><th>{t("Skip if…")}</th><th>{t("This product")}</th><th>{t("Result")}</th></tr></thead>
+          <tbody>{rules.map(([k, v, hit]) => <tr key={k}><td>{k}</td><td className="num">{v}</td><td>{hit ? <span className="chip chip-red">{t("Skip")}</span> : <span className="chip chip-green">OK</span>}</td></tr>)}</tbody></table></div>
+        <div className="row" style={{ gap: 8 }}><span className="muted small">{t("Decision:")}</span>{i.decision === "DO_NOT_BUY" ? <span className="chip chip-red">{t("Don't buy")}</span> : inPlan(i) ? <span className="chip chip-green">{t("Buy")}</span> : <span className="chip chip-amber">{t("Buy, waiting for budget")}</span>}</div>
       </Step>
-      <Step k={7} title="Expected gross profit">
+      <Step k={7} title={t("Expected gross profit")}>
         {q ? <>
-          <Fm>Can sell within 45 days: {g.forecast} × 1.5 = {sellWin} − {i.stock} in stock − {g.incoming} on order = <B>{i.sellable}</B></Fm>
-          <Fm>Counted as sold: smaller of {q} bought and {i.sellable} = <B>{sold}</B></Fm>
-          <Fm>Revenue {sold} × {rm2(i.sell)} = {rm(i.revenue)} · Cost {q} × {rm2(i.unitCost)} = {rm(i.cost)}</Fm>
-          <Fm>Gross profit {rm(i.revenue)} − {rm(i.cost)} = <B>{rm(i.profit)}</B> · ROI {rm(i.profit)} ÷ {rm(i.cost)} = <B>{pct(i.roi)}</B></Fm>
-          <Note>Pieces that might not sell within 45 days earn nothing in this estimate, so it stays on the safe side.</Note>
-        </> : <Note>{i.decision === "DO_NOT_BUY" ? <>Nothing bought, so no profit counted. Cash already sitting in this stock: {i.stock} × {rm2(i.unitCost)} = <b>{rm(i.stock * i.unitCost)}</b>.</> : "Nothing bought in this plan, so no profit counted."}</Note>}
+          <Fm>{t("Can sell within {n} days", { n: win })}: {g.forecast} × {ENGINE.sellWindow} = {sellWin} − {t("{n} in stock", { n: i.stock })} − {t("{n} on order", { n: g.incoming })} = <B>{i.sellable}</B></Fm>
+          <Fm>{t("Counted as sold: smaller of {a} bought and {b}", { a: q, b: i.sellable })} = <B>{sold}</B></Fm>
+          <Fm>{t("Revenue")} {sold} × {rm2(i.sell)} = {rm(i.revenue)} · {t("Cost")} {q} × {rm2(i.unitCost)} = {rm(i.cost)}</Fm>
+          <Fm>{t("Gross profit")} {rm(i.revenue)} − {rm(i.cost)} = <B>{rm(i.profit)}</B> · ROI {rm(i.profit)} ÷ {rm(i.cost)} = <B>{pct(i.roi)}</B></Fm>
+          <Note>{t("Pieces that might not sell within {n} days earn nothing in this estimate, so it stays on the safe side.", { n: win })}</Note>
+        </> : <Note>{i.decision === "DO_NOT_BUY" ? t("Nothing bought, so no profit counted. Cash already sitting in this stock: {a} × {b} = {c}.", { a: i.stock, b: rm2(i.unitCost), c: <b>{rm(i.stock * i.unitCost)}</b> }) : t("Nothing bought in this plan, so no profit counted.")}</Note>}
       </Step>
-      <Step k={8} title="Confidence: how steady are the sales?">
+      <Step k={8} title={t("Confidence: how steady are the sales?")}>
         <div className="scroll-x"><table className="mini"><thead><tr><th />{M.map((m) => <th key={m} className="right">{m}</th>)}</tr></thead><tbody>
-          <tr><td className="muted">Sold</td>{s.map((v, k) => <td key={k} className="right num">{v}</td>)}</tr>
-          <tr><td className="muted">Trend line</td>{f.fitted.map((v, k) => <td key={k} className="right num">{f1(v)}</td>)}</tr>
-          <tr><td className="muted">Miss</td>{s.map((v, k) => <td key={k} className="right num">{f1(Math.abs(v - f.fitted[k]))}</td>)}</tr>
+          <tr><td className="muted">{t("Sold")}</td>{s.map((v, k) => <td key={k} className="right num">{v}</td>)}</tr>
+          <tr><td className="muted">{t("Trend line")}</td>{f.fitted.map((v, k) => <td key={k} className="right num">{f1(v)}</td>)}</tr>
+          <tr><td className="muted">{t("Miss")}</td>{s.map((v, k) => <td key={k} className="right num">{f1(Math.abs(v - f.fitted[k]))}</td>)}</tr>
         </tbody></table></div>
-        <Fm>Average miss (RMSE) = {f1(f.rmse)} pieces = {f1(missPct)}% of the average {f1(f.ym)}</Fm>
-        <Fm>97 − {f1(missPct)} × 2{pen} = {f1(raw)}{raw > 97 || raw < 55 ? " (kept between 55 and 97)" : ""} → <B>{g.conf}%</B></Fm>
-        <Note>High confidence means the sales pattern is steady and easy to predict. It is not a promise of profit.</Note>
+        <Fm>{t("Average miss (RMSE) = {a} pieces = {b}% of the average {c}", { a: f1(f.rmse), b: f1(missPct), c: f1(f.ym) })}</Fm>
+        <Fm>97 − {f1(missPct)} × 2{pen} = {f1(raw)}{raw > 97 || raw < 55 ? ` (${t("kept between 55 and 97")})` : ""} → <B>{g.conf}%</B></Fm>
+        <Note>{t("High confidence means the sales pattern is steady and easy to predict. It is not a promise of profit.")}</Note>
       </Step>
-      <Step k={9} title="Priority and budget">
+      <Step k={9} title={t("Priority and budget")}>
         {i.decision === "BUY" ? <>
           <div className="scroll-x"><table className="mini"><tbody>
             {parts.map(([k, v]) => <tr key={k}><td>{k}</td><td className="right num">{v >= 0 ? "+" : "−"}{f1(Math.abs(v))}</td></tr>)}
-            <tr><td className="bold">Priority score</td><td className="right num bold">{i.score}</td></tr>
+            <tr><td className="bold">{t("Priority score")}</td><td className="right num bold">{i.score}</td></tr>
           </tbody></table></div>
-          <Note>The budget is filled from the highest score down. {i.short} is <b>#{rank} of {ranked.length}</b> items worth buying.</Note>
-        </> : <Note>Not ranked: AI doesn&apos;t buy this item.</Note>}
+          <Note>{t("The budget is filled from the highest score down. {name} is {rank} items worth buying.", { name: i.short, rank: <b>{t("#{a} of {b}", { a: rank, b: ranked.length })}</b> })}</Note>
+        </> : <Note>{t("Not ranked: AI doesn't buy this item.")}</Note>}
       </Step>
-      <div className="notice blue" style={{ marginTop: 14 }}><Icon n="info" size={16} /><span>Estimates from {n} months of sales. They don&apos;t know about promotions, festivals or competitors, and profit is before rent, wages and delivery. That&apos;s why a person approves every plan.</span></div>
+      <div className="notice blue" style={{ marginTop: 14 }}><Icon n="info" size={16} /><span>{t("Estimates from {n} months of sales. They don't know about promotions, festivals or competitors, and profit is before rent, wages and delivery. That's why a person approves every plan.", { n })}</span></div>
     </Modal>
   );
 }
 
 const MODALS = {
   send: SendModal, reject: RejectModal, budget: BudgetModal, message: MessageModal, posCreated: PosCreatedModal, product: ProductModal,
-  category: CategoryModal, supplier: SupplierModal, grant: GrantModal, confirm: ConfirmModal, calc: CalcModal,
+  category: CategoryModal, supplier: SupplierModal, grant: GrantModal, confirm: ConfirmModal, calc: CalcModal, payment: PaymentModal,
 };

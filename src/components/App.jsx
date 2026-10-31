@@ -1,10 +1,11 @@
 "use client";
 /* StockNow app shell: loads the shop from the API, keeps the screen state, and sends every change
    to /api/action. In a simulated outage, stock moves run locally (same code) and sync later. */
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ActionError, OFFLINE_ACTIONS, ROLE_LABEL, applyAction, can as canRole } from "@/lib/actions.js";
 import { analyse, budgetLeft, members, openPOs, pendingRequests, userOf } from "@/lib/engine.js";
-import { clone, fromJSON, initials, nowStamp, plural, toJSON } from "@/lib/format.js";
+import { clone, fromJSON, initials, nowStamp, toJSON } from "@/lib/format.js";
+import { DEFAULT_LANG, HTML_LANG, LANGS, dateText, translate } from "@/lib/i18n.js";
 import { Icon, RoleChip } from "./ui.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Products from "./pages/Products.jsx";
@@ -27,7 +28,9 @@ const PAGES = {
 };
 
 export const OFFLINE_MSG = "You're offline. This needs a connection, so it stays here until StockNow is back.";
-const ME_KEY = "stocknow.me";
+const ME_KEY = "stocknow.me", LANG_KEY = "stocknow.lang", PO_KEY = "stocknow.lastPo";
+const load = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const keep = (k, v) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch {} };
 
 const initialUi = () => ({
   page: "dashboard",
@@ -36,9 +39,11 @@ const initialUi = () => ({
   approvals: { tab: "pending", draft: {}, note: {}, err: null },
   stockInTab: "orders",
   receive: {},
+  focusPo: null, // a PO someone just opened from elsewhere: Stock In scrolls to it
+  lastPo: null, // the PO being received, highlighted until it is saved
   products: { q: "", cat: "", sort: "name" },
   activity: { q: "", action: "", user: "" },
-  settingsTab: "categories",
+  settingsTab: "language", // first, so someone who can't read English finds it straight away
   catchup: "",
   catchupResult: null,
   backupText: "",
@@ -54,7 +59,7 @@ async function api(path, body) {
 
 export default function App() {
   const [d, setData] = useState(null);
-  const [meta, setMeta] = useState({ mode: "memory", gemini: false });
+  const [meta, setMeta] = useState({ mode: "memory", gemini: false, geminiModel: "" });
   const [loadError, setLoadError] = useState("");
   const [meId, setMeId] = useState("u3");
   const [ui, setUiRaw] = useState(initialUi);
@@ -65,6 +70,7 @@ export default function App() {
   const [offline, setOffline] = useState(false);
   const [queue, setQueue] = useState([]);
   const [busy, setBusy] = useState(0);
+  const [lang, setLangRaw] = useState(DEFAULT_LANG);
   const toastTimer = useRef(null);
   const mainRef = useRef(null);
 
@@ -82,21 +88,39 @@ export default function App() {
     const out = await api("/api/state");
     if (out.error) { setLoadError(out.error); return null; }
     setData(out.data);
-    setMeta({ mode: out.mode, gemini: out.gemini });
+    setMeta({ mode: out.mode, gemini: out.gemini, geminiModel: out.geminiModel });
     return out.data;
   }, []);
 
   /* First load: the shop data and the last demo account used on this device. */
   useEffect(() => {
-    let saved = null;
-    try { saved = localStorage.getItem(ME_KEY); } catch {}
+    const saved = load(ME_KEY), savedLang = load(LANG_KEY), savedPo = load(PO_KEY);
+    if (LANGS.some(([k]) => k === savedLang)) setLangRaw(savedLang);
     refresh().then((data) => {
       if (!data) return;
       const who = data.people.find((u) => u.id === saved && u.role) ? saved : "u3";
       setMeId(who);
       setAi({ budget: String(budgetLeft(data)) });
+      if (savedPo && openPOs(data).some((po) => po.id === savedPo)) setUi({ lastPo: savedPo });
     });
-  }, [refresh, setAi]);
+  }, [refresh, setAi, setUi]);
+
+  /* Screen language: English unless this device picked another one in Settings. */
+  const setLang = useCallback((l) => { setLangRaw(l); keep(LANG_KEY, l === DEFAULT_LANG ? "" : l); }, []);
+  useEffect(() => { document.documentElement.lang = HTML_LANG[lang] || "en"; }, [lang]);
+  useEffect(() => { if (d) keep(PO_KEY, ui.lastPo); }, [d, ui.lastPo]);
+
+  /* t("Text {x}", { x }) translates; values that are elements (e.g. <b>) come back as a fragment list. */
+  const t = useCallback((s, vars) => {
+    const out = translate(lang, s);
+    if (!vars) return out;
+    if (!Object.values(vars).some((v) => v !== null && typeof v === "object")) return out.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ""));
+    return out.split(/(\{\w+\})/g).map((part, i) => { const m = part.match(/^\{(\w+)\}$/); return <Fragment key={i}>{m ? vars[m[1]] : part}</Fragment>; });
+  }, [lang]);
+  const tp = useCallback((n, one, many, vars) => t(n === 1 ? one : many, { n, ...vars }), [t]);
+  const when = useCallback((at) => dateText(lang, at), [lang]);
+  const day = useCallback((at) => dateText(lang, at, true), [lang]);
+  const days = useCallback((v) => (v === Infinity ? t("no recent sales") : v < 1 ? t("under 1 day") : tp(Math.round(v), "{n} day", "{n} days")), [t, tp]);
 
   /* Keep screens in sync when several people use the demo at once (e.g. Staff sends, Owner approves). */
   useEffect(() => {
@@ -118,7 +142,7 @@ export default function App() {
   /* Runs an action. Returns { ok, result, error, fields } so forms can mark their inputs. */
   const act = useCallback(async (type, payload = {}, { toastFields = false } = {}) => {
     if (offline) {
-      if (!OFFLINE_ACTIONS.has(type)) { toast(OFFLINE_MSG, true); return { ok: false, error: OFFLINE_MSG }; }
+      if (!OFFLINE_ACTIONS.has(type)) { toast(t(OFFLINE_MSG), true); return { ok: false, error: OFFLINE_MSG }; }
       const next = clone(d), at = nowStamp();
       try {
         const result = applyAction(next, meId, type, payload, { offline: true, at });
@@ -140,12 +164,12 @@ export default function App() {
       else if (!out.fields || toastFields) toast(out.error || "Something went wrong.", true);
       return out;
     } catch {
-      toast("No connection to StockNow. Try again, or turn on offline mode in Settings → Backup.", true);
+      toast(t("No connection to StockNow. Try again, or turn on offline mode in Settings → Backup."), true);
       return { ok: false, error: "network" };
     } finally {
       setBusy((b) => b - 1);
     }
-  }, [d, meId, offline, toast]);
+  }, [d, meId, offline, toast, t]);
 
   const openModal = useCallback((kind, props = {}) => setModal({ kind, ...props }), []);
   const closeModal = useCallback(() => setModal(null), []);
@@ -153,25 +177,26 @@ export default function App() {
   /* Scheduled draft / alerts: open AI Restock with a plan for the budget left. */
   const openPlan = useCallback(() => {
     const b = budgetLeft(d);
-    setAi({ budget: String(b), ideal: false, result: analyse(d, b), phase: "done", auto: true, filter: null, open: {}, tab: "plan", summary: null });
+    setAi({ budget: String(b), ideal: false, result: analyse(d, b), phase: offline ? "done" : "writing", step: 5, auto: true, filter: null, open: {}, tab: "plan", summary: null });
     go("ai");
-  }, [d, go, setAi]);
+  }, [d, go, setAi, offline]);
 
   const signInAs = useCallback((id) => {
     const u = userOf(d, id);
     setMeId(id);
     try { localStorage.setItem(ME_KEY, id); } catch {}
-    setUi((x) => ({ page: "dashboard", ai: x.ai.phase === "done" ? x.ai : { ...x.ai, budget: String(budgetLeft(d)) } }));
+    setUi((x) => ({ page: "dashboard", ai: x.ai.phase === "done" || x.ai.phase === "writing" ? x.ai : { ...x.ai, budget: String(budgetLeft(d)) } }));
     setProfileOpen(false);
     setNavOpen(false);
-    toast(`Now using ${u.name} (${ROLE_LABEL[u.role]})`);
-  }, [d, setUi, toast]);
+    toast(t("Now using {name} ({role})", { name: u.name, role: t(ROLE_LABEL[u.role]) }));
+  }, [d, setUi, toast, t]);
 
   const switchScenario = useCallback(async (key) => {
     if (key === d.settings.scenario) return;
     const out = await act("switchScenario", { key });
     if (!out.ok) return;
     setUiRaw((x) => ({ ...initialUi(), page: x.page, settingsTab: x.settingsTab, ai: { ...initialUi().ai, tab: x.ai.tab, budget: String(budgetLeft(out.data)) } }));
+    keep(PO_KEY, "");
     if (!out.data.people.find((u) => u.id === meId && u.role)) setMeId("u3");
   }, [act, d, meId]);
 
@@ -180,15 +205,15 @@ export default function App() {
     if (!offline) {
       await act("goOffline");
       setOffline(true);
-      toast("Offline mode: keep recording stock as usual");
+      toast(t("Offline mode: keep recording stock as usual"));
       return;
     }
     setOffline(false);
     const out = await api("/api/action", { actorId: meId, type: "syncOffline", payload: { queue } });
     if (out.data) setData(out.data);
     if (out.ok) { setQueue([]); toast(out.result.toast, out.result.bad); }
-    else { setOffline(true); toast(out.error || "Sync failed. Still offline; try again.", true); }
-  }, [act, meId, offline, queue, toast]);
+    else { setOffline(true); toast(out.error || t("Sync failed. Still offline; try again."), true); }
+  }, [act, meId, offline, queue, toast, t]);
 
   // If the current account loses access, fall back to a demo account that still has it.
   useEffect(() => {
@@ -198,12 +223,12 @@ export default function App() {
     }
   }, [d, me]);
 
-  if (loadError) return <div className="boot"><Icon n="warning" size={28} /><b>StockNow could not start</b><span>{loadError}</span><button className="btn btn-primary" onClick={() => { setLoadError(""); refresh(); }}>Try again</button></div>;
-  if (!d || !me) return <div className="boot"><span className="spin" /><span>Loading StockNow…</span></div>;
+  if (loadError) return <div className="boot"><Icon n="warning" size={28} /><b>{t("StockNow could not start")}</b><span>{loadError}</span><button className="btn btn-primary" onClick={() => { setLoadError(""); refresh(); }}>{t("Try again")}</button></div>;
+  if (!d || !me) return <div className="boot"><span className="spin" /><span>{t("Loading StockNow…")}</span></div>;
 
   const value = {
     d, setData, me, meta, ui, setUi, setAi, can, go, act, toast, openModal, closeModal, modal, openPlan, signInAs, switchScenario,
-    offline, queue, toggleOffline, refresh, busy: busy > 0,
+    offline, queue, toggleOffline, refresh, busy: busy > 0, lang, setLang, t, tp, when, day, days,
   };
   const Page = PAGES[ui.page] || Dashboard;
   return (
@@ -214,7 +239,7 @@ export default function App() {
         <Sidebar open={navOpen} profileOpen={profileOpen} setProfileOpen={setProfileOpen} />
         <main className="main" ref={mainRef}>
           <div className="topbar">
-            <button className="icon-btn" aria-label="Open menu" onClick={() => setNavOpen(true)}><Icon n="menu" size={20} /></button>
+            <button className="icon-btn" aria-label={t("Open menu")} onClick={() => setNavOpen(true)}><Icon n="menu" size={20} /></button>
             <span className="logo" style={{ width: 28, height: 28 }}><Icon n="spark" size={16} sw={2} /></span>
             <span className="brand-name" style={{ fontSize: 15 }}>StockNow</span>
             <span className="spacer" />
@@ -223,8 +248,8 @@ export default function App() {
           {offline ? (
             <div className="notice amber section">
               <Icon n="offline" size={16} />
-              <span><b>Offline (simulated).</b> Stock in and out are saved on this device and sync when StockNow is back{queue.length ? ` (${plural(queue.length, "change")} waiting)` : ""}. AI plans still work.{" "}
-                <button className="btn btn-link btn-sm" style={{ marginLeft: 6 }} onClick={toggleOffline}>Back online</button></span>
+              <span><b>{t("Offline (simulated).")}</b> {t("Stock in and out are saved on this device and sync when StockNow is back.")}{queue.length ? ` ${tp(queue.length, "{n} change waiting.", "{n} changes waiting.")}` : ""} {t("AI plans still work.")}{" "}
+                <button className="btn btn-link btn-sm" style={{ marginLeft: 6 }} onClick={toggleOffline}>{t("Back online")}</button></span>
             </div>
           ) : null}
           <Page />
@@ -242,7 +267,7 @@ export default function App() {
 }
 
 function Sidebar({ open, profileOpen, setProfileOpen }) {
-  const { d, me, ui, go, signInAs } = useApp();
+  const { d, me, ui, go, signInAs, t } = useApp();
   const pend = pendingRequests(d).length, ord = openPOs(d).length;
   const menu = [
     { id: "dashboard", label: "Dashboard", icon: "grid" },
@@ -259,12 +284,12 @@ function Sidebar({ open, profileOpen, setProfileOpen }) {
     { id: "settings", label: "Settings", icon: "settings" },
   ];
   return (
-    <nav className={`sidebar ${open ? "open" : ""}`} aria-label="Main">
+    <nav className={`sidebar ${open ? "open" : ""}`} aria-label={t("Main")}>
       <div className="brand"><span className="logo"><Icon n="spark" size={18} sw={2} /></span><span className="brand-name">StockNow</span></div>
       <div className="nav-list">
         {menu.map((m) => m.sep ? <div key={"sep" + m.sep} className="nav-sep" /> : (
           <button key={m.id} className={`nav-item ${m.ai ? "ai" : ""} ${ui.page === m.id ? "active" : ""}`} onClick={() => go(m.id)} aria-current={ui.page === m.id ? "page" : undefined}>
-            <Icon n={m.icon} /> <span>{m.label}</span>
+            <Icon n={m.icon} /> <span>{t(m.label)}</span>
             {m.badge ? <span className={`nav-badge ${m.tone || ""}`}>{m.badge}</span> : null}
           </button>
         ))}
@@ -278,10 +303,10 @@ function Sidebar({ open, profileOpen, setProfileOpen }) {
                 <div style={{ fontWeight: 600 }}>{me.name}</div>
                 <div style={{ fontSize: 12, color: "var(--text-2)", wordBreak: "break-all" }}>{me.email}</div>
               </div>
-              <div className="eyebrow" style={{ padding: "4px 12px" }}>Switch demo account</div>
+              <div className="eyebrow" style={{ padding: "4px 12px" }}>{t("Switch demo account")}</div>
               {members(d).map((u) => (
                 <button key={u.id} className={`menu-item ${u.id === me.id ? "on" : ""}`} onClick={() => signInAs(u.id)}>
-                  <Icon n="swap" size={16} /> {u.name} · {ROLE_LABEL[u.role]}
+                  <Icon n="swap" size={16} /> {u.name} · {t(ROLE_LABEL[u.role])}
                 </button>
               ))}
             </div>
@@ -291,7 +316,7 @@ function Sidebar({ open, profileOpen, setProfileOpen }) {
           <span className="avatar">{initials(me.name)}</span>
           <span className="stack" style={{ flex: 1 }}>
             <span style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{me.name}</span>
-            <span style={{ fontSize: 12, color: "var(--text-2)" }}>{ROLE_LABEL[me.role]}</span>
+            <span style={{ fontSize: 12, color: "var(--text-2)" }}>{t(ROLE_LABEL[me.role])}</span>
           </span>
           <Icon n="chevronUp" size={16} />
         </button>

@@ -4,11 +4,11 @@ import {
   Activity, ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Ban, Bell, Bot, Calculator, Check, ChevronDown, ChevronRight, ChevronUp,
   Circle, CirclePause, ClipboardCheck, Clock, Coins, Copy, Database, Info, LayoutGrid, Link2, Menu, MessageSquare, Minus, Package, Pencil,
   Plus, Receipt, Search, Send, ShoppingCart, SlidersHorizontal, Sparkles, Store, Tag, Target, Trash2, TrendingDown, TrendingUp,
-  TriangleAlert, Truck, Users, Wallet, WifiOff, X,
+  TriangleAlert, Truck, Undo2, Users, Wallet, WifiOff, X, Languages,
 } from "lucide-react";
+import { useApp } from "./App.jsx";
 import { lateDays, poOf } from "@/lib/engine.js";
 import { ROLE_LABEL } from "@/lib/actions.js";
-import { shortDate } from "@/lib/format.js";
 
 const ICONS = {
   grid: LayoutGrid, spark: Sparkles, approve: ClipboardCheck, box: Package, in: ArrowDownToLine, out: ArrowUpFromLine, store: Store,
@@ -16,7 +16,7 @@ const ICONS = {
   chevronRight: ChevronRight, plus: Plus, minus: Minus, pencil: Pencil, trash: Trash2, close: X, check: Check, info: Info,
   warning: TriangleAlert, send: Send, bot: Bot, truck: Truck, wallet: Wallet, coins: Coins, up: TrendingUp, down: TrendingDown,
   menu: Menu, message: MessageSquare, swap: ArrowLeftRight, dot: Circle, link: Link2, cart: ShoppingCart, pause: CirclePause, ban: Ban,
-  receipt: Receipt, tag: Tag, bell: Bell, clock: Clock, calc: Calculator, target: Target, offline: WifiOff, database: Database, copy: Copy,
+  receipt: Receipt, tag: Tag, bell: Bell, clock: Clock, calc: Calculator, target: Target, offline: WifiOff, database: Database, copy: Copy, undo: Undo2, lang: Languages,
 };
 
 export function Icon({ n, size = 18, sw = 1.8, style }) {
@@ -67,22 +67,45 @@ export function Empty({ title, text, ic = "search" }) {
 export const FieldError = ({ msg }) => (msg ? <div className="hint err">{msg}</div> : null);
 
 export function RoleChip({ role }) {
+  const { t } = useApp();
   const cls = role === "OWNER" ? "chip-blue" : role === "MANAGER" || role === "SYSTEM" ? "chip-ai" : "chip-grey";
-  return <span className={`chip ${cls}`}>{ROLE_LABEL[role] || role}</span>;
+  return <span className={`chip ${cls}`}>{ROLE_LABEL[role] ? t(ROLE_LABEL[role]) : role}</span>;
 }
 
 export function ReqChip({ status }) {
+  const { t } = useApp();
   const m = { PENDING: ["chip-amber", "Waiting for approval"], APPROVED: ["chip-green", "Approved"], PARTIAL: ["chip-green", "Partly approved"], REJECTED: ["chip-red", "Rejected"] }[status];
-  return m ? <span className={`chip ${m[0]}`}>{m[1]}</span> : null;
+  return m ? <span className={`chip ${m[0]}`}>{t(m[1])}</span> : null;
 }
 
 export function PoChip({ po }) {
-  if (po.status === "RECEIVED") return <span className="chip chip-green">Received</span>;
+  const { t, tp, day } = useApp();
+  if (po.status === "RECEIVED") return <span className="chip chip-green">{t("Received")}</span>;
   const late = lateDays(po);
-  if (late) return <span className="chip chip-red">{late} days late</span>;
-  if (!po.sentAt) return <span className="chip chip-amber">Not sent yet</span>;
-  if (po.status === "PARTIAL") return <span className="chip chip-amber">Partly received</span>;
-  return <span className="chip chip-blue">Expected {shortDate(po.expectedAt)}</span>;
+  if (late) return <span className="chip chip-red">{tp(late, "{n} day late", "{n} days late")}</span>;
+  if (!po.sentAt) return <span className="chip chip-amber">{t("Not sent yet")}</span>;
+  if (po.status === "PARTIAL") return <span className="chip chip-amber">{t("Partly received")}</span>;
+  return <span className="chip chip-blue">{t("Expected {date}", { date: day(po.expectedAt) })}</span>;
+}
+
+/* Where AI text came from: Gemini, or the built-in template and why (no key, error, or the number check). */
+export function AiSourceChip({ s, long = false }) {
+  const { t, offline } = useApp();
+  const [cls, label] = !s || s.loading ? ["chip-ai", "Gemini is writing…"]
+    : s.source === "gemini" ? ["chip-ai", long ? "Written by Gemini from these numbers" : "Written by Gemini"]
+      : offline || s.source === "offline" ? ["chip-amber", "Offline: template text"]
+        : s.reason === "prototype" ? ["chip-amber", "Prototype: Gemini simulated"]
+        : s.reason === "no_key" ? ["chip-amber", "Template: Gemini not set up"]
+          : s.reason === "numbers" ? ["chip-amber", "Template: Gemini's numbers didn't match"]
+            : ["chip-amber", "Template: Gemini didn't answer"];
+  return <span className={`chip ${cls}`} title={s?.note || ""}><Icon n="bot" size={12} /> {t(label)}</span>;
+}
+
+/* A supplier order code that opens it on Stock In (highlighted there). */
+export function PoLink({ po }) {
+  const { go, t } = useApp();
+  if (po.status === "RECEIVED") return <span className="mono">{po.code}</span>;
+  return <button className="btn-link mono po-link" title={t("Open on Stock In")} onClick={() => go("stock-in", { stockInTab: "orders", focusPo: po.id })}>{po.code}</button>;
 }
 
 export function PoCell({ d, ids }) {
@@ -90,19 +113,20 @@ export function PoCell({ d, ids }) {
   if (!pos.length) return <span className="faint">—</span>;
   return pos.map((po) => (
     <div key={po.id} className="row" style={{ gap: 6, margin: "2px 0", flexWrap: "wrap" }}>
-      <span className="mono">{po.code}</span>
+      <PoLink po={po} />
       <PoChip po={po} />
     </div>
   ));
 }
 
 export function Modal({ title, children, foot, size = "", onClose }) {
+  const { t } = useApp();
   return (
     <div className="overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className={`modal ${size}`} role="dialog" aria-modal="true" aria-label={title}>
         <div className="modal-head">
           <h2 className="card-title">{title}</h2>
-          <button className="icon-btn" aria-label="Close" onClick={onClose}><Icon n="close" size={20} /></button>
+          <button className="icon-btn" aria-label={t("Close")} onClick={onClose}><Icon n="close" size={20} /></button>
         </div>
         <div className="modal-body">{children}</div>
         {foot ? <div className="modal-foot">{foot}</div> : null}
