@@ -3,7 +3,7 @@
    to /api/action. In a simulated outage, stock moves run locally (same code) and sync later. */
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ActionError, OFFLINE_ACTIONS, ROLE_LABEL, applyAction, can as canRole } from "@/lib/actions.js";
-import { analyse, budgetLeft, members, openPOs, pendingRequests, userOf } from "@/lib/engine.js";
+import { budgetLeft, members, openPOs, pendingRequests, userOf } from "@/lib/engine.js";
 import { clone, fromJSON, initials, nowStamp, toJSON } from "@/lib/format.js";
 import { DEFAULT_LANG, HTML_LANG, LANGS, dateText, translate } from "@/lib/i18n.js";
 import { Icon, RoleChip } from "./ui.jsx";
@@ -42,7 +42,7 @@ const initialUi = () => ({
   focusPo: null, // a PO someone just opened from elsewhere: Stock In scrolls to it
   lastPo: null, // the PO being received, highlighted until it is saved
   products: { q: "", cat: "", sort: "name" },
-  activity: { q: "", action: "", user: "" },
+  activity: { q: "", action: "", user: "", from: "", to: "" },
   settingsTab: "language", // first, so someone who can't read English finds it straight away
   catchup: "",
   catchupResult: null,
@@ -174,12 +174,13 @@ export default function App() {
   const openModal = useCallback((kind, props = {}) => setModal({ kind, ...props }), []);
   const closeModal = useCallback(() => setModal(null), []);
 
-  /* Scheduled draft / alerts: open AI Restock with a plan for the budget left. */
+  /* Dashboard reminders and alerts: open AI Restock with the budget left filled in. Nothing is analysed
+     until the person checks the budget and presses Analyse, so the loading steps always start from the top. */
   const openPlan = useCallback(() => {
-    const b = budgetLeft(d);
-    setAi({ budget: String(b), ideal: false, result: analyse(d, b), phase: offline ? "done" : "writing", step: 5, auto: true, filter: null, open: {}, tab: "plan", summary: null });
+    setAi((ai) => (ai.phase === "thinking" || ai.phase === "writing" ? { tab: "plan" }
+      : { budget: String(budgetLeft(d)), ideal: false, result: null, phase: "idle", step: 0, auto: false, filter: null, open: {}, tab: "plan", summary: null, focus: Date.now() }));
     go("ai");
-  }, [d, go, setAi, offline]);
+  }, [d, go, setAi]);
 
   const signInAs = useCallback((id) => {
     const u = userOf(d, id);
@@ -226,9 +227,11 @@ export default function App() {
   if (loadError) return <div className="boot"><Icon n="warning" size={28} /><b>{t("StockNow could not start")}</b><span>{loadError}</span><button className="btn btn-primary" onClick={() => { setLoadError(""); refresh(); }}>{t("Try again")}</button></div>;
   if (!d || !me) return <div className="boot"><span className="spin" /><span>{t("Loading StockNow…")}</span></div>;
 
+  /* A person's name with their role, e.g. "David Lee (Staff)". */
+  const who = (id) => { const u = userOf(d, id); return u.role && ROLE_LABEL[u.role] ? `${u.name} (${t(ROLE_LABEL[u.role])})` : u.name; };
   const value = {
     d, setData, me, meta, ui, setUi, setAi, can, go, act, toast, openModal, closeModal, modal, openPlan, signInAs, switchScenario,
-    offline, queue, toggleOffline, refresh, busy: busy > 0, lang, setLang, t, tp, when, day, days,
+    offline, queue, toggleOffline, refresh, busy: busy > 0, lang, setLang, t, tp, when, day, days, who,
   };
   const Page = PAGES[ui.page] || Dashboard;
   return (

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useApp } from "../App.jsx";
 import { Empty, FieldError, Icon, PoChip, Select } from "../ui.jsx";
 import {
-  budgetLeft, isCustomerReturn, isReversal, lateDays, nameOfP, openPOs, paymentRef, poOf, poTotal, productOf, reqOf, reversalOf, supName, userOf,
+  budgetLeft, isCustomerReturn, isManualBuy, isReversal, isSupplierReturn, lateDays, nameOfP, openPOs, paymentRef, poOf, poTotal, productOf, reqOf, reversalOf, supName, userOf,
 } from "@/lib/engine.js";
 import { undoBlock } from "@/lib/actions.js";
 import { rm, today } from "@/lib/format.js";
@@ -14,9 +14,17 @@ const REDUCED = () => typeof window !== "undefined" && window.matchMedia?.("(pre
 export function TxTable({ title, kind }) {
   const { d, me, act, openModal, t, when } = useApp();
   const rows = d.tx.filter((x) => x.type === (kind === "in" ? "STOCK_IN" : "STOCK_OUT") && !isReversal(x)).slice(0, 8);
+  /* What the undo does to this month's budget, said before the person confirms. */
+  const budgetNote = (x) => {
+    const po = x.poId ? poOf(d, x.poId) : null, cost = rm(x.qty * (productOf(d, x.pid)?.cost ?? 0));
+    if (po) return t("{code} goes back to “still due”. Budget left doesn't change: the money was counted when the order was approved, and the order is still owed.", { code: po.code });
+    if (isManualBuy(x)) return t("{cost} goes back to this month's budget.", { cost });
+    if (isSupplierReturn(x)) return t("{cost} is taken from this month's budget again.", { cost });
+    return "";
+  };
   const undo = (x) => openModal("confirm", {
     title: t(kind === "in" ? "Undo this stock in?" : "Undo this stock out?"),
-    body: t("{qty} × {name} goes {dir}. The original entry and the undo both stay in the activity log.", { qty: x.qty, name: nameOfP(d, x.pid), dir: t(kind === "in" ? "back out of stock" : "back into stock") }),
+    body: `${t("{qty} × {name} goes {dir}. The original entry and the undo both stay in the activity log.", { qty: x.qty, name: nameOfP(d, x.pid), dir: t(kind === "in" ? "back out of stock" : "back into stock") })} ${budgetNote(x)}`.trim(),
     label: t("Undo"), danger: true, onOk: () => act("undoTx", { txId: x.id }),
   });
   const refund = (ref) => openModal("confirm", {
@@ -31,7 +39,7 @@ export function TxTable({ title, kind }) {
         <div className="scroll-x"><table style={{ minWidth: 900 }}>
           <thead><tr><th>{t("Date")}</th><th>{t("Product")}</th><th className="right">{t("Qty")}</th><th className="right">{t("Stock before")}</th><th className="right">{t("Stock after")}</th><th>{kind === "in" ? t("Supplier / order") : t("Reason")}</th><th>{t("By")}</th><th className="right"><span className="sr-only">{t("Actions")}</span></th></tr></thead>
           <tbody>{rows.map((x) => {
-            const po = x.poId ? poOf(d, x.poId) : null, ref = paymentRef(x), undone = reversalOf(d, x), canUndo = !undoBlock(d, me, x);
+            const po = x.poId ? poOf(d, x.poId) : null, ref = paymentRef(x), undone = reversalOf(d, x), block = undoBlock(d, me, x), canUndo = !block;
             return (
               <tr key={x.id} className={undone ? "undone" : ""}>
                 <td className="muted" style={{ whiteSpace: "nowrap" }}>{when(x.at)}</td>
@@ -46,14 +54,17 @@ export function TxTable({ title, kind }) {
                 <td className="right" style={{ whiteSpace: "nowrap" }}>
                   {undone ? <span className="chip chip-grey" title={when(undone.at)}>{t(ref ? "Refunded" : "Undone")} · {userOf(d, undone.by).name}</span>
                     : canUndo ? <button className="btn btn-secondary btn-sm" onClick={() => undo(x)}><Icon n="undo" size={14} /> {t("Undo")}</button>
-                      : ref ? <button className="btn btn-link btn-sm" onClick={() => refund(ref)}>{t("Simulate refund")}</button> : null}
+                      : ref ? <button className="btn btn-link btn-sm" onClick={() => refund(ref)}>{t("Simulate refund")}</button>
+                        : <span className="faint small" title={t(block)}><Icon n="lock" size={13} /> {t("Locked")}</span>}
                 </td>
               </tr>
             );
           })}</tbody>
         </table></div>
       ) : <Empty title={t("Nothing recorded yet")} text={t("Saved entries appear here.")} />}
-      <div className="table-foot">{me.role === "STAFF" ? t("You can undo your own entries from today. The Owner or a Manager can undo any entry.") : t("Undo adds an opposite entry, so the history and the activity log keep both.")}</div>
+      <div className="table-foot"><Icon n="info" size={14} /> {me.role === "STAFF"
+        ? t("You can undo your own entries until midnight of the day you made them. After that, ask the Owner or a Manager.")
+        : t("Staff can undo their own entries until midnight of the same day. The Owner or a Manager can undo any entry, as long as the stock is still there. Undo adds an opposite entry, so the history keeps both.")}</div>
     </div>
   );
 }

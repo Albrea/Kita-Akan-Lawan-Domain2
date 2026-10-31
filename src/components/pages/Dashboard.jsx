@@ -1,4 +1,5 @@
 "use client";
+import { useRef } from "react";
 import { useApp } from "../App.jsx";
 import { DotIc, Empty, Icon } from "../ui.jsx";
 import {
@@ -18,7 +19,7 @@ function useForYou() {
   if (approver) pend.forEach((r) => items.push({ key: r.id, tone: "amber", ic: "approve", title: t("Approve {code} from {name}", { code: r.code, name: userOf(d, r.by).name }), sub: t("{cost} · expected profit {profit}", { cost: rm(r.items.reduce((s, i) => s + i.cost, 0)), profit: rm(r.items.reduce((s, i) => s + i.profit, 0)) }), btn: t("Review"), run: () => go("approvals") }));
   if (!approver) pend.filter((r) => r.by === me.id).forEach((r) => items.push({ key: r.id, tone: "grey", ic: "clock", title: t("{code} is waiting for {names}", { code: r.code, names: list((r.sentTo || []).map((id) => userOf(d, id).name)) }), sub: `${t("Sent {date}", { date: when(r.at) })} · ${rm(r.items.reduce((s, i) => s + i.cost, 0))}`, btn: t("View"), run: () => go("approvals") }));
   const plan = d.alerts.find((a) => a.open && a.type === "PLAN");
-  if (plan && !pend.length) items.push({ key: plan.id, tone: "ai", ic: "spark", title: t("AI drafted a restock plan"), sub: `${t("Automatic, from the {left} budget left", { left: rm(budgetLeft(d)) })} · ${when(plan.at)}`, btn: t("Review plan"), run: openPlan });
+  if (plan && !pend.length) items.push({ key: plan.id, tone: "ai", ic: "spark", title: t("Time to plan this month's restock"), sub: `${t("Monthly reminder · {left} budget left", { left: rm(budgetLeft(d)) })} · ${when(plan.at)}`, btn: t("Plan restock"), run: openPlan });
   d.alerts.filter((a) => a.open && a.type === "LOW").forEach((a) => {
     const p = productOf(d, a.pid);
     if (!p) return;
@@ -47,6 +48,15 @@ export default function Dashboard() {
   const out = d.products.filter((p) => p.stock === 0), low = d.products.filter((p) => p.stock > 0 && p.stock < p.min);
   const left = budgetLeft(d), mb = d.settings.monthlyBudget;
   const tab = ui.dashTab, rows = tab === "low" ? low : out;
+  const needsRef = useRef(null);
+  /* The red "Out of stock" tile jumps to the out-of-stock list below. */
+  const showOut = () => {
+    setUi({ dashTab: "out" });
+    const el = needsRef.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  };
 
   return (
     <>
@@ -67,7 +77,7 @@ export default function Dashboard() {
           <div className="bar"><i style={{ width: `${mb ? Math.round((left / mb) * 100) : 0}%` }} /></div>
           <div className="stat-foot">{t("of {total} · {used} used", { total: rm(mb), used: rm(spentThisMonth(d)) })}</div>
         </div>
-        <div className="stat t-red"><div className="stat-label"><Icon n="warning" size={15} /> {t("Out of stock")}</div><div className="stat-value">{out.length}</div><div className="stat-foot">{t("{n} more running low", { n: low.length })}</div></div>
+        <div className="stat t-red stat-click" role="link" tabIndex={0} aria-label={t("Show out-of-stock products")} onClick={showOut} onKeyDown={(e) => { if (e.key === "Enter") showOut(); }}><div className="stat-label"><Icon n="warning" size={15} /> {t("Out of stock")}</div><div className="stat-value">{out.length}</div><div className="stat-foot">{t("{n} more running low", { n: low.length })}</div></div>
       </div>
 
       <div className="card section">
@@ -84,7 +94,7 @@ export default function Dashboard() {
         )) : <Empty title={t("All clear")} text={t("Nothing needs you right now. StockNow will tell you when it does.")} ic="check" />}
       </div>
 
-      <div className="card">
+      <div className="card" id="needs-attention" ref={needsRef} style={{ scrollMarginTop: 16 }}>
         <div className="card-head">
           <h2 className="card-title">{t("Needs attention")}</h2>
           <div className="tabs">

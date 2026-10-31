@@ -2,6 +2,25 @@
 import { useApp } from "../App.jsx";
 import { Empty, Icon, RoleChip, Select } from "../ui.jsx";
 import { ORBYTE_USER, SYS_USER, members, userOf } from "@/lib/engine.js";
+import { ROLE_LABEL } from "@/lib/actions.js";
+import { today } from "@/lib/format.js";
+
+/* One CSV field: quoted when it holds a comma, quote or line break (Excel and Google Sheets read this).
+   Text starting with = + - @ gets a leading ' so a spreadsheet shows it instead of running it as a formula. */
+const csvCell = (v) => {
+  const s = /^[=+\-@]/.test(String(v)) ? `'${v}` : String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+/* Saves the rows the person is looking at as a .csv file. The leading BOM makes Excel read Malay/Tamil/Chinese text correctly. */
+function downloadCsv(name, rows) {
+  const text = "\uFEFF" + rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export const ACTION_LABEL = {
   PRODUCT_CREATED: "Product created", PRODUCT_UPDATED: "Product updated", PRODUCT_DELETED: "Product deleted",
@@ -21,7 +40,16 @@ export default function ActivityLog() {
   const { d, ui, setUi, t, when } = useApp();
   const f = ui.activity, q = f.q.trim().toLowerCase();
   const set = (patch) => setUi((u) => ({ activity: { ...u.activity, ...patch } }));
-  const rows = d.logs.filter((l) => (!f.action || l.action === f.action) && (!f.user || l.by === f.user) && (!q || l.text.toLowerCase().includes(q)));
+  const from = f.from || "", to = f.to || "";
+  const rows = d.logs.filter((l) => (!f.action || l.action === f.action) && (!f.user || l.by === f.user) && (!q || l.text.toLowerCase().includes(q))
+    && (!from || l.at.slice(0, 10) >= from) && (!to || l.at.slice(0, 10) <= to));
+  const filtered = !!(q || f.action || f.user || from || to);
+  const roleOf = (l) => { const u = userOf(d, l.by); return l.by === "sys" ? "Automation" : u.role ? ROLE_LABEL[u.role] : "No access"; };
+  /* Exports every matching entry (not only the 300 on screen), in the same order and wording. */
+  const exportCsv = () => downloadCsv(`stocknow-activity-${from || "start"}-to-${to || today()}.csv`, [
+    [t("Date"), t("Person"), t("Role"), t("Action"), t("Description")],
+    ...rows.map((l) => [l.at, userOf(d, l.by).name, t(roleOf(l)), t(ACTION_LABEL[l.action] || l.action), l.text]),
+  ]);
   const actions = [...new Set(d.logs.map((l) => l.action))];
   return (
     <>
@@ -31,6 +59,17 @@ export default function ActivityLog() {
           <div className="search" style={{ flex: 1, minWidth: 200 }}><Icon n="search" /><input className="input" placeholder={t("Search descriptions")} aria-label={t("Search activity")} value={f.q} onChange={(e) => set({ q: e.target.value })} /></div>
           <div style={{ width: 200, maxWidth: "100%" }}><Select id="act-a" label={t("Action")} value={f.action} onChange={(v) => set({ action: v })} options={[["", t("All actions")], ...actions.map((a) => [a, t(ACTION_LABEL[a] || a)])]} /></div>
           <div style={{ width: 180, maxWidth: "100%" }}><Select id="act-u" label={t("Person")} value={f.user} onChange={(v) => set({ user: v })} options={[["", t("All people")], ...[...members(d), SYS_USER, ORBYTE_USER].map((u) => [u.id, u.name])]} /></div>
+        </div>
+        <div className="toolbar date-bar">
+          <label className="date-field" htmlFor="act-from"><Icon n="calendar" size={15} /> {t("From")}<input className="input" id="act-from" type="date" value={from} max={to || undefined} onChange={(e) => set({ from: e.target.value })} /></label>
+          <label className="date-field" htmlFor="act-to">{t("To")}<input className="input" id="act-to" type="date" value={to} min={from || undefined} onChange={(e) => set({ to: e.target.value })} /></label>
+          <div className="chips">
+            <button className={`qchip ${from === today() && to === today() ? "on" : ""}`} onClick={() => set({ from: today(), to: today() })}>{t("Today")}</button>
+            <button className={`qchip ${from === today().slice(0, 8) + "01" && !to ? "on" : ""}`} onClick={() => set({ from: today().slice(0, 8) + "01", to: "" })}>{t("This month")}</button>
+          </div>
+          {filtered ? <button className="btn btn-link btn-sm" onClick={() => set({ q: "", action: "", user: "", from: "", to: "" })}>{t("Clear filters")}</button> : null}
+          <span className="spacer" />
+          <button className="btn btn-secondary btn-sm" onClick={exportCsv} disabled={!rows.length}><Icon n="download" size={15} /> {t("Export CSV ({n})", { n: rows.length })}</button>
         </div>
         {rows.length ? (
           <>

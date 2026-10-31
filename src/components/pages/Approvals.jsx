@@ -5,7 +5,7 @@ import { budgetLeft, pendingRequests, summaryBullets, userOf } from "@/lib/engin
 import { list, num, rm } from "@/lib/format.js";
 
 export default function Approvals() {
-  const { d, ui, setUi, can, t, when } = useApp();
+  const { d, ui, setUi, can, t, when, who } = useApp();
   const tab = ui.approvals.tab, pend = pendingRequests(d), hist = d.requests.filter((r) => r.status !== "PENDING");
   const setTab = (x) => setUi((u) => ({ approvals: { ...u.approvals, tab: x } }));
   return (
@@ -26,9 +26,9 @@ export default function Approvals() {
               <tbody>{hist.map((r) => (
                 <tr key={r.id}>
                   <td><span className="mono bold">{r.code}</span><div className="faint small">{when(r.at)}</div></td>
-                  <td>{userOf(d, r.by).name}</td>
+                  <td>{who(r.by)}</td>
                   <td className="right num">{rm(r.items.filter((i) => i.status === "APPROVED").reduce((s, i) => s + i.cost, 0))}</td>
-                  <td><ReqChip status={r.status} /><div className="faint small">{userOf(d, r.decidedBy).name} · {r.decidedAt ? when(r.decidedAt) : ""}</div></td>
+                  <td><ReqChip status={r.status} /><div className="faint small">{who(r.decidedBy)} · {r.decidedAt ? when(r.decidedAt) : ""}</div></td>
                   <td style={{ maxWidth: 260, fontSize: 13 }}>{r.decisionNote || <span className="faint">—</span>}</td>
                   <td><PoCell d={d} ids={r.poIds} /></td>
                 </tr>
@@ -41,7 +41,7 @@ export default function Approvals() {
 }
 
 function ApprovalCard({ r }) {
-  const { d, ui, setUi, can, act, openModal, t, when } = useApp();
+  const { d, ui, setUi, can, act, openModal, t, when, who } = useApp();
   const act_ = can("approveAI");
   const buys = r.items.filter((i) => i.decision === "BUY"), skips = r.items.filter((i) => i.decision !== "BUY");
   const draft = ui.approvals.draft[r.id] || Object.fromEntries(buys.map((i) => [i.pid, "APPROVED"]));
@@ -63,7 +63,7 @@ function ApprovalCard({ r }) {
       <div className="card-head">
         <div className="stack">
           <div className="row" style={{ gap: 8 }}><span className="mono bold" style={{ fontSize: 14 }}>{r.code}</span><ReqChip status={r.status} /></div>
-          <span className="muted small">{t("From {name} · {date} · sent to {names}", { name: userOf(d, r.by).name, date: when(r.at), names: list((r.sentTo || []).map((id) => userOf(d, id).name)) })}</span>
+          <span className="muted small">{t("From {name} · {date} · sent to {names}", { name: who(r.by), date: when(r.at), names: list((r.sentTo || []).map(who)) })}</span>
         </div>
       </div>
       <div className="card-pad" style={{ paddingBottom: 8 }}>

@@ -10,7 +10,7 @@ import { SCENARIOS } from "@/lib/seed.js";
 import { ROLE_LABEL } from "@/lib/actions.js";
 import { clone, digits, list, num, pct, plural, rm, toJSON } from "@/lib/format.js";
 import { monthName } from "@/lib/i18n.js";
-import { BOUNDS, BUSINESS_TYPES, DEFAULT_FORECAST_CONFIG, historyMode, validateConfig } from "@/lib/forecast.js";
+import { BUSINESS_TYPES, SETTINGS_UI, historyMode, typeDefaults, uiRange, validateConfig } from "@/lib/forecast.js";
 
 const REDUCED = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -52,13 +52,20 @@ const thinkSteps = (d, ai, t, tp, lang) => [
 ];
 
 export default function AiRestock() {
-  const { d, me, ui, setAi, can, go, act, toast, openPlan, switchScenario, offline, t, tp, lang, when } = useApp();
+  const { d, me, ui, setAi, can, go, act, toast, switchScenario, offline, t, tp, lang, when, who } = useApp();
   const a = ui.ai, r = a.result, b = +a.budget || 0;
   const mb = d.settings.monthlyBudget, spent = spentThisMonth(d), left = budgetLeft(d);
   const plan = d.alerts.find((x) => x.open && x.type === "PLAN");
   const mine = d.requests.filter((x) => can("approveAI") || x.by === me.id).slice(0, 4);
   const busy = a.phase === "thinking" || a.phase === "writing";
   useGeminiSummary();
+
+  /* Arriving from the Dashboard: put the cursor in the budget box so the person checks it first. */
+  useEffect(() => {
+    if (!a.focus) return;
+    const el = document.getElementById("budget");
+    if (el) { el.focus(); el.select(); el.scrollIntoView({ block: "center" }); }
+  }, [a.focus]);
 
   /* The "thinking" walk-through, one step at a time, then the deterministic analysis. */
   useEffect(() => {
@@ -143,8 +150,7 @@ export default function AiRestock() {
               <div className="card">
                 {plan ? (
                   <div className="todo"><DotIc ic="spark" tone="ai" />
-                    <span className="stack"><span className="bold">{t("AI already drafted a plan at {time}", { time: plan.at.split(" ")[1] })}</span><span className="muted small">{t("Automatic, from the {left} budget left this month", { left: rm(left) })}</span></span>
-                    <button className="btn btn-ai btn-sm" onClick={openPlan}>{t("Review plan")}</button></div>
+                    <span className="stack"><span className="bold">{t("Time to plan this month's restock")}</span><span className="muted small">{t("The budget left this month ({left}) is filled in. Change it if you like, then press Analyse with AI.", { left: rm(left) })}</span></span></div>
                 ) : null}
                 <Empty title={t("Ready when you are")} text={t("Pick a budget and press Analyse. Or turn on No limit to see how much money everything would need.")} ic="spark" />
               </div>
@@ -158,7 +164,7 @@ export default function AiRestock() {
                   <tbody>{mine.map((x) => (
                     <tr key={x.id}>
                       <td><span className="mono bold">{x.code}</span><div className="faint small">{when(x.at)}</div></td>
-                      <td>{userOf(d, x.by).name}</td>
+                      <td>{who(x.by)}</td>
                       <td className="right num">{rm(x.items.reduce((s, i) => s + i.cost, 0))}</td>
                       <td><ReqChip status={x.status} />{x.decisionNote ? <div className="faint small" style={{ maxWidth: 240 }}>“{x.decisionNote}”</div> : null}</td>
                       <td><PoCell d={d} ids={x.poIds} /></td>
@@ -468,18 +474,22 @@ function AccuracyView() {
    Adaptive forecast settings: Gemini proposes bounded settings from derived sales statistics,
    StockNow validates and backtests them, and an Owner or Manager approves (or keeps the current ones).
    ============================================================================ */
-const SETTING_ROWS = [
-  ["wmaWeight", "Recent months vs long-term trend", (v) => `${Math.round(v * 100)}% / ${Math.round((1 - v) * 100)}%`],
-  ["safetyPct", "Safety stock", (v) => `${Math.round(v * 100)}%`],
-  ["cautious", "Plan when demand is falling", (v) => `${Math.round(v * 100)}%`],
-  ["sellWindow", "Stock must sell within", (v) => `${Math.round(v * 30)} d`],
-  ["overstockDays", "Overstock after", (v) => `${v} d`],
-  ["lowMargin", "Thin margin below", (v) => `${Math.round(v * 100)}%`],
-];
-const rangeText = (k) => { const [lo, hi] = BOUNDS[k], f = SETTING_ROWS.find((r) => r[0] === k)[2]; return `${f(lo)} – ${f(hi)}`; };
+/* Every setting is shown and typed as a whole % or a number of days (see SETTINGS_UI in forecast.js). */
+const SETTING_KEYS = Object.keys(SETTINGS_UI);
+function useSettingText() {
+  const { t } = useApp();
+  const text = (k, v) => {
+    const u = SETTINGS_UI[k].toUi(v);
+    if (k === "wmaWeight") return t("{a}% recent · {b}% trend", { a: u, b: 100 - u });
+    return SETTINGS_UI[k].unit === "%" ? `${u}%` : t("{n} days", { n: u });
+  };
+  const range = (k) => { const [lo, hi] = uiRange(k); return SETTINGS_UI[k].unit === "%" ? `${lo}–${hi}%` : t("{a}–{b} days", { a: lo, b: hi }); };
+  return { text, range };
+}
 
 function ForecastSettings() {
   const { d, me, can, act, offline, t, when } = useApp();
+  const { text: f, range: rangeText } = useSettingText();
   const owner = can("forecastSettings");
   const cfg = configOf(d), saved = d.settings.forecastConfig, months = d.settings.salesMonths.length, mode = historyMode(months);
   const type = BUSINESS_TYPES[d.settings.businessType] || BUSINESS_TYPES.clothing;
@@ -502,16 +512,23 @@ function ForecastSettings() {
       setSt({ phase: "proposal", ...out });
     } catch { setSt({ phase: "error", error: t("No connection to StockNow.") }); }
   }
-  const edited = st.phase === "proposal" && edit && SETTING_ROWS.some(([k]) => edit[k] !== st.proposed[k]);
-  const check = edit ? validateConfig(Object.fromEntries(SETTING_ROWS.map(([k]) => [k, edit[k]]))) : null;
+  const edited = st.phase === "proposal" && edit && SETTING_KEYS.some((k) => edit[k] !== st.proposed[k]);
+  /* Range problems are explained in the units the person typed (e.g. "30–60 days"), before the engine's own check. */
+  const uiErrors = edit ? SETTING_KEYS.flatMap((k) => {
+    const [lo, hi] = uiRange(k), u = edit[k] === "" ? NaN : SETTINGS_UI[k].toUi(edit[k]);
+    return Number.isFinite(u) && u >= lo && u <= hi ? [] : [t("{label}: enter {range}.", { label: t(SETTINGS_UI[k].label), range: rangeText(k) })];
+  }) : [];
+  const check = !edit ? null : uiErrors.length ? { ok: false, errors: uiErrors } : validateConfig(Object.fromEntries(SETTING_KEYS.map((k) => [k, edit[k]])));
   const after = edit && check?.ok ? backtestMulti(d, { ...cfg, ...check.values }) : null;
   const better = after && after.error < now.error - 0.001, worse = after && after.error > now.error + 0.001;
   async function approve() {
-    const values = Object.fromEntries(SETTING_ROWS.map(([k]) => [k, edit[k]]).filter(([k, v]) => v !== cfg[k]));
+    const values = Object.fromEntries(SETTING_KEYS.map((k) => [k, edit[k]]).filter(([k, v]) => v !== cfg[k]));
     const out = await act("applyForecastConfig", { values: Object.keys(values).length ? values : { wmaWeight: edit.wmaWeight }, source: edited ? "manual" : "ai", explanation: st.explanation, model: st.model }, { toastFields: true });
     if (out.ok) { setSt({ phase: "idle" }); setEdit(null); }
   }
-  const setVal = (k, raw) => setEdit((e) => ({ ...e, [k]: raw === "" ? "" : Number(raw) }));
+  /* The person types % or days; the engine value is stored (e.g. 45 days → 1.5 months). */
+  const setVal = (k, raw) => setEdit((e) => ({ ...e, [k]: raw === "" || !Number.isFinite(Number(raw)) ? "" : SETTINGS_UI[k].fromUi(Number(raw)) }));
+  const label = (k) => <><span>{t(SETTINGS_UI[k].label)}</span><div className="faint small setting-help">{t(SETTINGS_UI[k].help)}</div></>;
   const pc = (x) => `${(x * 100).toFixed(1)}%`;
   const sourceChip = !saved ? <span className="chip chip-grey">{t("Defaults for {type}", { type: t(type.label) })}</span>
     : saved.source === "ai" ? <span className="chip chip-ai"><Icon n="spark" size={12} /> {t("AI-assisted")} · {saved.model || "Gemini"}</span>
@@ -528,8 +545,8 @@ function ForecastSettings() {
         <div className={`notice ${mode.key === "enough" ? "ai" : "amber"}`} style={{ marginBottom: 14 }}><Icon n="activity" size={16} /><span><b>{t(mode.label)}</b> ({t("{n} months of sales", { n: months })}, {t(type.label)}). {t(mode.text)}</span></div>
         <div className="scroll-x"><table className="mini">
           <thead><tr><th>{t("Setting")}</th><th className="right">{t("In use")}</th><th className="right">{t("Default")}</th><th className="right">{t("Allowed")}</th></tr></thead>
-          <tbody>{SETTING_ROWS.map(([k, label, f]) => (
-            <tr key={k}><td>{t(label)}</td><td className="right num bold">{f(cfg[k])}</td><td className="right num muted">{f(DEFAULT_FORECAST_CONFIG[k])}</td><td className="right num faint">{rangeText(k)}</td></tr>
+          <tbody>{SETTING_KEYS.map((k) => (
+            <tr key={k}><td>{label(k)}</td><td className="right num bold nowrap">{f(k, cfg[k])}</td><td className="right num muted nowrap">{f(k, typeDefaults(d.settings.businessType)[k])}</td><td className="right num faint nowrap">{rangeText(k)}</td></tr>
           ))}</tbody>
         </table></div>
         <div className="row wrap" style={{ justifyContent: "space-between", gap: 10, marginTop: 12 }}>
@@ -566,16 +583,18 @@ function ForecastSettings() {
           {st.explanation ? <div className="summary-box" style={{ marginTop: 0, marginBottom: 14 }}><span className="eyebrow" style={{ color: "var(--ai-fg)" }}>{t("Gemini's reasoning")}</span><p className="ai-text" style={{ marginTop: 4 }}>{st.explanation}</p></div> : null}
           <div className="scroll-x"><table className="mini">
             <thead><tr><th>{t("Setting")}</th><th className="right">{t("In use")}</th><th className="right">{t("Proposed")}</th><th className="right">{t("Allowed")}</th></tr></thead>
-            <tbody>{SETTING_ROWS.map(([k, label, f]) => {
-              const changed = edit[k] !== cfg[k], [lo, hi] = BOUNDS[k], step = k === "overstockDays" ? 1 : 0.05;
+            <tbody>{SETTING_KEYS.map((k) => {
+              const s = SETTINGS_UI[k], changed = edit[k] !== cfg[k], [lo, hi] = uiRange(k);
               return (
                 <tr key={k} style={changed ? { background: "var(--ai-bg)" } : undefined}>
-                  <td>{t(label)}{changed ? <span className="chip chip-ai" style={{ marginLeft: 6 }}>{t("changed")}</span> : null}</td>
-                  <td className="right num">{f(cfg[k])}</td>
+                  <td>{label(k)}{changed ? <span className="chip chip-ai" style={{ marginTop: 4 }}>{t("changed")}</span> : null}</td>
+                  <td className="right num nowrap">{f(k, cfg[k])}</td>
                   <td className="right">{owner
-                    ? <span className="row" style={{ gap: 6, justifyContent: "flex-end" }}><input className="input qty-input" style={{ width: 84 }} type="number" min={lo} max={hi} step={step} aria-label={t(label)} value={edit[k]} onChange={(e) => setVal(k, e.target.value)} /><span className="faint small" style={{ minWidth: 70 }}>{edit[k] === "" ? "" : f(edit[k])}</span></span>
-                    : <span className="num bold">{f(edit[k])}</span>}</td>
-                  <td className="right num faint">{rangeText(k)}</td>
+                    ? <span className="unit-input"><input className="input" type="number" inputMode="numeric" min={lo} max={hi} step={s.step} aria-label={`${t(s.label)} (${s.unit === "%" ? "%" : t("days")})`}
+                        value={edit[k] === "" ? "" : s.toUi(edit[k])} onChange={(e) => setVal(k, e.target.value)} /><span className="unit">{s.unit === "%" ? "%" : t("days")}</span></span>
+                    : <span className="num bold nowrap">{f(k, edit[k])}</span>}
+                    {owner && k === "wmaWeight" && edit[k] !== "" ? <div className="faint small nowrap">{t("{b}% trend", { b: 100 - s.toUi(edit[k]) })}</div> : null}</td>
+                  <td className="right num faint nowrap">{rangeText(k)}</td>
                 </tr>
               );
             })}</tbody>

@@ -4,7 +4,7 @@ import {
   Activity, ArrowDownToLine, ArrowLeftRight, ArrowUpFromLine, Ban, Bell, Bot, Calculator, Check, ChevronDown, ChevronRight, ChevronUp,
   Circle, CirclePause, ClipboardCheck, Clock, Coins, Copy, Database, Info, LayoutGrid, Link2, Menu, MessageSquare, Minus, Package, Pencil,
   Plus, Receipt, Search, Send, ShoppingCart, SlidersHorizontal, Sparkles, Store, Tag, Target, Trash2, TrendingDown, TrendingUp,
-  TriangleAlert, Truck, Undo2, Users, Wallet, WifiOff, X, Languages,
+  TriangleAlert, Truck, Undo2, Users, Wallet, WifiOff, X, Languages, Lock, Download, Calendar,
 } from "lucide-react";
 import { useApp } from "./App.jsx";
 import { lateDays, poOf } from "@/lib/engine.js";
@@ -16,7 +16,7 @@ const ICONS = {
   chevronRight: ChevronRight, plus: Plus, minus: Minus, pencil: Pencil, trash: Trash2, close: X, check: Check, info: Info,
   warning: TriangleAlert, send: Send, bot: Bot, truck: Truck, wallet: Wallet, coins: Coins, up: TrendingUp, down: TrendingDown,
   menu: Menu, message: MessageSquare, swap: ArrowLeftRight, dot: Circle, link: Link2, cart: ShoppingCart, pause: CirclePause, ban: Ban,
-  receipt: Receipt, tag: Tag, bell: Bell, clock: Clock, calc: Calculator, target: Target, offline: WifiOff, database: Database, copy: Copy, undo: Undo2, lang: Languages,
+  receipt: Receipt, tag: Tag, bell: Bell, clock: Clock, calc: Calculator, target: Target, offline: WifiOff, database: Database, copy: Copy, undo: Undo2, lang: Languages, lock: Lock, download: Download, calendar: Calendar,
 };
 
 export function Icon({ n, size = 18, sw = 1.8, style }) {
