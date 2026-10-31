@@ -74,14 +74,14 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 
 ### Tech Stack
 
-| Layer         | Technology                                                                                                                                            |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frontend      | Next.js 15 (React 19), JavaScript, plain CSS, lucide-react icons                                                                                      |
-| Backend       | Next.js API routes (Node.js); restock engine in plain JavaScript (`lib/engine.js`)                                                                    |
-| Database      | Supabase (PostgreSQL), with a built-in in-memory demo store when Supabase is not configured                                                           |
+| Layer         | Technology                                                                                                            |
+| ------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Frontend      | Next.js 15 (React 19), JavaScript, plain CSS, lucide-react icons                                                      |
+| Backend       | Next.js API routes (Node.js); restock engine in plain JavaScript (`lib/engine.js`)                                    |
+| Database      | Supabase (PostgreSQL), with a built-in in-memory demo store when Supabase is not configured                           |
 | AI            | Google Gemini API (`gemini-3.5-flash` by default, set with `GEMINI_MODEL`; busy → `gemini-3.5-flash-lite`) for wording only, with a template fallback |
-| Hosting / Dev | Replit                                                                                                                                                |
-| Tests         | Vitest                                                                                                                                                |
+| Hosting / Dev | Replit                                                                                                                |
+| Tests         | Vitest                                                                                                                |
 
 ---
 
@@ -265,23 +265,16 @@ There is no live Orbyte access in this challenge, so this is our interface assum
 **Endpoint:** `POST /api/orbyte/payment`, signed with the shared secret `ORBYTE_WEBHOOK_SECRET`. The header is `x-orbyte-signature: sha256=<hex HMAC-SHA256 of the raw body>`. Unsigned or wrongly signed requests get `401` and change nothing; without the secret the endpoint is off (`503`).
 
 ```json
-{
-  "event": "payment.succeeded",
-  "paymentId": "PAY-1001",
-  "channel": "in_store",
-  "items": [
-    { "sku": "TEE-CMB", "qty": 2 },
-    { "sku": "ACC-TOT", "qty": 1 }
-  ]
-}
+{ "event": "payment.succeeded", "paymentId": "PAY-1001", "channel": "in_store",
+  "items": [{ "sku": "TEE-CMB", "qty": 2 }, { "sku": "ACC-TOT", "qty": 1 }] }
 ```
 
-| Situation                                   | What StockNow does                                                                                                       |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Every SKU known and in stock                | One stock out per line (reason "Orbyte Payment PAY-1001"), added to today's sales, logged under **Orbyte Payment**       |
+| Situation | What StockNow does |
+| --- | --- |
+| Every SKU known and in stock | One stock out per line (reason "Orbyte Payment PAY-1001"), added to today's sales, logged under **Orbyte Payment** |
 | Unknown SKU, not enough stock, bad quantity | That line is **not** recorded. An alert asks the Owner or a Manager to check, with the reason; they close it with a note |
-| Same `paymentId` sent again                 | Ignored (`duplicate: true`), so retries are safe                                                                         |
-| `"event": "payment.refunded"`               | The items go back into stock and the sale is removed; a second refund is ignored                                         |
+| Same `paymentId` sent again | Ignored (`duplicate: true`), so retries are safe |
+| `"event": "payment.refunded"` | The items go back into stock and the sale is removed; a second refund is ignored |
 
 StockNow never moves money: it only reacts to the fact that a payment happened.
 
@@ -303,7 +296,7 @@ StockNow never moves money: it only reacts to the fact that a payment happened.
 
 **Gemini model.** The default is `gemini-3.5-flash`. Set `GEMINI_MODEL` to use another one. If the chosen model is overloaded, slow (12 s) or unavailable, StockNow automatically tries `gemini-3.5-flash`, then `gemini-3.5-flash-lite` (change the list with `GEMINI_FALLBACK_MODELS`). In our test on 31 Oct 2026, `gemini-3.8-flash` returned no text within 30 s and reported "high demand", while `gemini-3.5-flash` answered in 1–8 s and `gemini-3.5-flash-lite` in under 1 s. The label on each AI text shows, on hover, which model wrote it.
 
-**Check that Gemini works.** Open **Settings → AI (Gemini) → Test Gemini**. It makes one small call from the server and shows the model and the answer time, or Google's exact error (for example an invalid key or an unknown model). When Gemini writes a text, its label says **Written by Gemini**. If the built-in template is used instead, the label says why: _Gemini not set up_ (no `GEMINI_API_KEY` on the server), _Gemini didn't answer_ (error or timeout, after one retry), or _Gemini's numbers didn't match_ (its reply used a number StockNow didn't calculate). After changing a key in Replit Secrets, redeploy so the server picks it up.
+**Check that Gemini works.** Open **Settings → AI (Gemini) → Test Gemini**. It makes one small call from the server and shows the model and the answer time, or Google's exact error (for example an invalid key or an unknown model). When Gemini writes a text, its label says **Written by Gemini**. If the built-in template is used instead, the label says why: *Gemini not set up* (no `GEMINI_API_KEY` on the server), *Gemini didn't answer* (error or timeout, after one retry), or *Gemini's numbers didn't match* (its reply used a number StockNow didn't calculate). After changing a key in Replit Secrets, redeploy so the server picks it up.
 
 **The `.replit` file.** Replit reads it automatically; you don't run it yourself.
 
