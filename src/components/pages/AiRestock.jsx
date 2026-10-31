@@ -1,16 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../App.jsx";
-import { AiSourceChip, Bullets, DotIc, Empty, Icon, PoCell, ReqChip, Select, Spark, confColor, reasonIcon } from "../ui.jsx";
+import { AiSourceChip, Bullets, DotIc, Empty, Icon, PoCell, ReqChip, Spark, confColor, reasonIcon } from "../ui.jsx";
 import {
   analyse, backtest, backtestMulti, budgetLeft, configOf, checks, inPlan, openPOs, overridesOf, poOf, routeTo, sendBlock, setItemIncluded, setItemQty,
   spentThisMonth, summaryBullets, userOf,
 } from "@/lib/engine.js";
-import { SCENARIOS } from "@/lib/seed.js";
 import { ROLE_LABEL } from "@/lib/actions.js";
 import { clone, digits, list, num, pct, plural, rm, toJSON } from "@/lib/format.js";
 import { monthName } from "@/lib/i18n.js";
-import { BUSINESS_TYPES, SETTINGS_UI, historyMode, typeDefaults, uiRange, validateConfig } from "@/lib/forecast.js";
+import { SETTINGS_UI, historyMode, typeDefaults, uiRange, validateConfig } from "@/lib/forecast.js";
 
 const REDUCED = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -34,7 +33,7 @@ function FlowBar() {
   const now = flowStage(d, ui.ai.phase);
   return (
     <div className="flow" aria-label={t("Restock workflow")}>
-      {["Alert or budget", "AI plan", "Send", "Approve", "Order supplier", "Receive"].map((s, i) => (
+      {["Alert or budget", "Plan", "Send", "Approve", "Order supplier", "Receive"].map((s, i) => (
         <span key={s} className={`flow-step ${i + 1 < now ? "done" : i + 1 === now ? "now" : ""}`}>
           <b>{i + 1 < now ? <Icon n="check" size={11} sw={3} /> : i + 1}</b>{t(s)}
         </span>
@@ -52,10 +51,9 @@ const thinkSteps = (d, ai, t, tp, lang) => [
 ];
 
 export default function AiRestock() {
-  const { d, me, ui, setAi, can, go, act, toast, switchScenario, offline, t, tp, lang, when, who } = useApp();
+  const { d, me, ui, setAi, can, go, act, toast, offline, t, tp, lang, when, who } = useApp();
   const a = ui.ai, r = a.result, b = +a.budget || 0;
   const mb = d.settings.monthlyBudget, spent = spentThisMonth(d), left = budgetLeft(d);
-  const plan = d.alerts.find((x) => x.open && x.type === "PLAN");
   const mine = d.requests.filter((x) => can("approveAI") || x.by === me.id).slice(0, 4);
   const busy = a.phase === "thinking" || a.phase === "writing";
   useGeminiSummary();
@@ -77,7 +75,7 @@ export default function AiRestock() {
       const res = analyse(d, budget);
       // The numbers are ready; the loading card stays up while Gemini writes the summary (see useGeminiSummary).
       setAi({ step: steps, phase: offline ? "done" : "writing", result: res, summary: null });
-      if (!offline) act("logAnalysis", { text: res.ideal ? `AI worked out the ideal plan: ${rm(res.t.cost)} for ${plural(res.t.buy.length, "product")}.` : `AI analysed a ${rm(budget)} budget: ${res.t.buy.length} buy, ${res.t.skip.length} don't buy, ${res.t.wait.length} wait. Expected profit ${rm(res.t.profit)}.` });
+      if (!offline) act("logAnalysis", { text: res.ideal ? `Worked out the ideal plan: ${rm(res.t.cost)} for ${plural(res.t.buy.length, "product")}.` : `Made a restock plan for a ${rm(budget)} budget: ${res.t.buy.length} buy, ${res.t.skip.length} don't buy, ${res.t.wait.length} wait. Expected profit ${rm(res.t.profit)}.` });
     }, REDUCED() ? 60 : 380);
     return () => clearTimeout(tm);
   }, [a.phase, a.step]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -93,32 +91,28 @@ export default function AiRestock() {
   return (
     <>
       <div className="page-head">
-        <div><h1 className="page-title">{t("AI Restock")}</h1><p className="page-sub">{t("AI checks your stock, sales and budget, then tells you what to buy, what to skip, and why.")}</p></div>
-        <span className="chip chip-ai"><Icon n="bot" size={14} /> {t("Numbers by StockNow · wording by Gemini")}</span>
+        <div><h1 className="page-title">{t("Smart Restock")}</h1><p className="page-sub">{t("What to buy, how many, and why. Always within your budget.")}</p></div>
       </div>
-      <FlowBar />
-      <div className="row wrap" style={{ justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
-        <div className="tabs">
-          <button className={`tab ${(a.tab || "plan") === "plan" ? "on" : ""}`} onClick={() => setAi({ tab: "plan" })}>{t("Restock plan")}</button>
-          <button className={`tab ${a.tab === "accuracy" ? "on" : ""}`} onClick={() => setAi({ tab: "accuracy" })}>{t("Accuracy check")}</button>
-          <button className={`tab ${a.tab === "settings" ? "on" : ""}`} onClick={() => setAi({ tab: "settings" })}>{t("Forecast settings")}</button>
-        </div>
-        <div className="row" style={{ gap: 8 }}>
-          <label className="muted small" htmlFor="scn">{t("Demo data")}</label>
-          <div style={{ width: 230, maxWidth: "60vw" }}><Select id="scn" cls="sm" value={d.settings.scenario} onChange={switchScenario} options={Object.entries(SCENARIOS).map(([k, x]) => [k, t(x.label)])} /></div>
-        </div>
+      {/* The 6-step progress bar only appears once there is a plan to follow (kept off the first screen). */}
+      {(a.tab || "plan") === "plan" && (r || busy || d.requests[0]?.status === "PENDING") ? <FlowBar /> : null}
+      <div className="tabs" style={{ marginBottom: 16 }}>
+        <button className={`tab ${(a.tab || "plan") === "plan" ? "on" : ""}`} onClick={() => setAi({ tab: "plan" })}>{t("Restock plan")}</button>
+        <button className={`tab ${a.tab === "accuracy" ? "on" : ""}`} onClick={() => setAi({ tab: "accuracy" })}>{t("Accuracy check")}</button>
+        <button className={`tab ${a.tab === "settings" ? "on" : ""}`} onClick={() => setAi({ tab: "settings" })}>{t("Forecast settings")}</button>
       </div>
 
       <div className="ai-layout"><div className="stack" style={{ gap: 20 }}>
         {a.tab === "accuracy" ? <AccuracyView /> : a.tab === "settings" ? <ForecastSettings /> : (
           <>
             <div className="card card-pad" style={{ borderColor: "var(--ai-br)" }}>
-              <div className="budget-tiles">
-                <div className="btile"><DotIc ic="wallet" tone="ai" /><div className="stack"><span className="muted small">{t("Monthly budget")}</span><span className="v">{rm(mb)}</span>
-                  {can("setBudget") ? <BudgetChangeButton /> : null}</div></div>
-                <div className="btile"><DotIc ic="approve" tone="blue" /><div className="stack"><span className="muted small">{t("Used this month")}</span><span className="v">{rm(spent)}</span></div></div>
-                <div className="btile"><DotIc ic="coins" tone={left > 0 ? "green" : "red"} /><div className="stack" style={{ flex: 1 }}><span className="muted small">{t("Left to spend")}</span><span className="v">{rm(left)}</span>
-                  <div className="bar" style={{ marginTop: 4 }}><i style={{ width: `${mb ? Math.round((left / mb) * 100) : 0}%` }} /></div></div></div>
+              {/* One line about the money instead of three tiles: what's left, out of the monthly budget. */}
+              <div className="budget-line">
+                <DotIc ic="wallet" tone={left > 0 ? "ai" : "red"} />
+                <div className="stack" style={{ flex: 1 }}>
+                  <span><b className="num">{rm(left)}</b> <span className="muted">{t("left to spend this month, of {total}", { total: rm(mb) })}</span></span>
+                  <div className="bar" style={{ marginTop: 6 }} title={t("{x} used", { x: rm(spent) })}><i style={{ width: `${mb ? Math.round((left / mb) * 100) : 0}%` }} /></div>
+                </div>
+                {can("setBudget") ? <BudgetChangeButton /> : null}
               </div>
               <label className="label" htmlFor="budget">{t("Budget for this plan")}</label>
               <div className="row wrap" style={{ gap: 12 }}>
@@ -126,7 +120,7 @@ export default function AiRestock() {
                   <input className="input" id="budget" inputMode="numeric" value={a.ideal ? "" : a.budget} placeholder={a.ideal ? t("No limit") : String(left)}
                     onChange={(e) => setBudget(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") start(false); }} disabled={busy} />
                 </div>
-                <button className="btn btn-ai btn-lg" onClick={() => start(false)} disabled={busy}><Icon n="spark" size={20} /> {t(r ? "Analyse again" : "Analyse with AI")}</button>
+                <button className="btn btn-ai btn-lg" onClick={() => start(false)} disabled={busy}><Icon n="spark" size={20} /> {t(r ? "Make plan again" : "Make plan")}</button>
               </div>
               <div className="row wrap" style={{ marginTop: 12, gap: 8 }}>
                 <div className="chips">
@@ -136,23 +130,13 @@ export default function AiRestock() {
                 <span className="spacer" />
                 <label className="switch"><input type="checkbox" checked={a.ideal} onChange={(e) => setIdeal(e.target.checked)} /> {t("No limit: show what everything costs")}</label>
               </div>
-              <div className="reads">
-                <span><Icon n="box" size={14} /> {tp(d.products.length, "{n} product", "{n} products")}</span>
-                <span><Icon n="activity" size={14} /> {t("{n} months of sales", { n: d.settings.salesMonths.length })}</span>
-                <span><Icon n="tag" size={14} /> {t("cost & selling prices")}</span>
-                <span><Icon n="truck" size={14} /> {tp(openPOs(d).length, "{n} open order", "{n} open orders")}</span>
-              </div>
             </div>
 
             {busy ? <ThinkingCard /> : null}
             {!busy && r ? <ResultView /> : null}
             {a.phase === "idle" && !r ? (
               <div className="card">
-                {plan ? (
-                  <div className="todo"><DotIc ic="spark" tone="ai" />
-                    <span className="stack"><span className="bold">{t("Time to plan this month's restock")}</span><span className="muted small">{t("The budget left this month ({left}) is filled in. Change it if you like, then press Analyse with AI.", { left: rm(left) })}</span></span></div>
-                ) : null}
-                <Empty title={t("Ready when you are")} text={t("Pick a budget and press Analyse. Or turn on No limit to see how much money everything would need.")} ic="spark" />
+                <Empty title={t("Ready when you are")} text={t("Check the budget, then press Make plan.")} ic="spark" />
               </div>
             ) : null}
 
@@ -189,7 +173,7 @@ function BudgetChangeButton() {
 function ThinkingCard() {
   const { d, ui, t, tp, lang, offline } = useApp();
   const writing = ui.ai.phase === "writing";
-  const steps = [...thinkSteps(d, ui.ai, t, tp, lang), ...(offline ? [] : [t("Gemini is writing the summary…")])], s = ui.ai.step;
+  const steps = [...thinkSteps(d, ui.ai, t, tp, lang), ...(offline ? [] : [t("Writing a short summary…")])], s = ui.ai.step;
   const [secs, setSecs] = useState(0);
   useEffect(() => {
     if (!writing) return setSecs(0);
@@ -198,14 +182,14 @@ function ThinkingCard() {
   }, [writing]);
   return (
     <div className="card thinking" style={{ borderColor: "var(--ai-br)" }} aria-live="polite" aria-busy="true">
-      <div className="row" style={{ marginBottom: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="bot" size={20} /></span><h2 className="card-title">{t("AI is analysing your shop…")}</h2></div>
+      <div className="row" style={{ marginBottom: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="activity" size={20} /></span><h2 className="card-title">{t("Checking your shop…")}</h2></div>
       {steps.map((x, i) => (
         <div key={i} className={`think-step ${i < s ? "done" : i === s ? "now" : ""}`}>
           <span className="think-dot">{i < s ? <Icon n="check" size={12} sw={3} /> : null}</span>
           <span>{x}{writing && i === s ? <span className="faint"> · {t("{n} s", { n: secs })}</span> : null}</span>
         </div>
       ))}
-      {writing ? <p className="muted small" style={{ margin: "4px 0 10px 30px" }}>{t("The numbers are ready. Gemini is turning them into plain words; this can take up to a minute.")}</p> : null}
+      {writing ? <p className="muted small" style={{ margin: "4px 0 10px 30px" }}>{t("The numbers are ready. Writing them up in plain words; this can take up to a minute.")}</p> : null}
       <div className={`bar ${writing ? "indeterminate" : ""}`}><i style={{ width: `${Math.round((s / steps.length) * 100)}%` }} /></div>
     </div>
   );
@@ -247,7 +231,7 @@ function SummaryBox({ r }) {
     <div className="summary-box" aria-live="polite">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
         <span className="eyebrow" style={{ color: "var(--ai-fg)" }}>{t("In short")}</span>
-        {s?.loading ? <span className="chip chip-ai"><span className="spin sm" /> {t("Gemini is updating the summary…")}</span> : <AiSourceChip s={s} long />}
+        {s?.loading ? <span className="chip chip-ai"><span className="spin sm" /> {t("Updating the summary…")}</span> : <AiSourceChip s={s} long />}
       </div>
       <p className="ai-text" style={s?.loading ? { opacity: 0.55 } : undefined}>{text}</p>
     </div>
@@ -290,8 +274,8 @@ function ResultView() {
     <>
       <div className="card card-pad" style={{ borderColor: "var(--ai-br)" }}>
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap" }}>
-          <div className="row" style={{ gap: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="spark" /></span><h2 className="card-title">{t(r.ideal ? "Ideal plan (no budget limit)" : "What AI found")}</h2></div>
-          <span className="chip chip-ai">{t(ui.ai.auto ? "Drafted automatically" : "AI analysis")} · {r.at.split(" ")[1]}</span>
+          <div className="row" style={{ gap: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="spark" /></span><h2 className="card-title">{t(r.ideal ? "Ideal plan (no budget limit)" : "Your restock plan")}</h2></div>
+          <span className="faint small">{t("Made at {time}", { time: r.at.split(" ")[1] })}</span>
         </div>
         <div className="verdicts" role="group" aria-label={t("Filter by decision")}>
           {verdict("buy", "cart", "var(--green-bg)", "var(--green-fg)", tt.buy.length, `${t("Buy")} · ${rm(tt.cost)}`)}
@@ -299,30 +283,33 @@ function ResultView() {
           {verdict("skip", "ban", "var(--red-bg)", "var(--red-fg)", tt.skip.length, `${t("Don't buy")} · ${t("{x} sitting", { x: rm(tied) })}`)}
         </div>
         <SummaryBox r={r} />
-        <Bullets items={summaryBullets(d, r)} style={{ marginTop: 18 }} />
-        <div className="row wrap" style={{ marginTop: 14, gap: 6 }}>
-          {c.over ? <span className="chip chip-red"><Icon n="close" size={12} sw={2.6} /> {t("Over budget")}</span> : null}
-          <details className="more">
-            <summary><span className="chip chip-green"><Icon n="check" size={12} sw={2.6} /> {t("{n} checks passed", { n: c.ok.length })}</span></summary>
-            <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>{c.ok.map((x) => <span key={x} className="chip chip-green"><Icon n="check" size={12} sw={2.6} /> {x}</span>)}</div>
-          </details>
-          {c.warn.map((x) => <span key={x} className="chip chip-amber" title={t("Needs your judgement")}><Icon n="warning" size={12} sw={2} /> {x}</span>)}
-        </div>
-        {tt.buy.length ? (
-          <div style={{ marginTop: 16 }}>
-            <div className="alloc" role="img" aria-label={t("Where the money goes")}>{segs.map((s) => <i key={s.i.pid} style={{ width: `${s.w}%`, background: s.col }} title={`${s.i.name} ${rm(s.i.cost)}`} />)}</div>
-            <div className="legend">
-              {segs.map((s) => <span key={s.i.pid}><i style={{ background: s.col }} />{s.i.short} {rm(s.i.cost)}</span>)}
-              {!r.ideal && tt.left > 0 ? <span><i style={{ background: "var(--divider)", border: "1px solid var(--border)" }} />{t("Unspent {x}", { x: rm(tt.left) })}</span> : null}
-            </div>
+        {/* Problems stay in view; everything else (key points, checks, where the money goes) is one click away. */}
+        {c.over || c.warn.length ? (
+          <div className="row wrap" style={{ marginTop: 12, gap: 6 }}>
+            {c.over ? <span className="chip chip-red"><Icon n="close" size={12} sw={2.6} /> {t("Over budget")}</span> : null}
+            {c.warn.map((x) => <span key={x} className="chip chip-amber" title={t("Needs your judgement")}><Icon n="warning" size={12} sw={2} /> {x}</span>)}
           </div>
         ) : null}
+        <details className="more" style={{ marginTop: 14 }}>
+          <summary><Icon n="info" size={14} /> {t("More detail")}</summary>
+          <Bullets items={summaryBullets(d, r)} style={{ marginTop: 14 }} />
+          <div className="row wrap" style={{ marginTop: 12, gap: 6 }}>{c.ok.map((x) => <span key={x} className="chip chip-green"><Icon n="check" size={12} sw={2.6} /> {x}</span>)}</div>
+          {tt.buy.length ? (
+            <div style={{ marginTop: 16 }}>
+              <div className="alloc" role="img" aria-label={t("Where the money goes")}>{segs.map((s) => <i key={s.i.pid} style={{ width: `${s.w}%`, background: s.col }} title={`${s.i.name} ${rm(s.i.cost)}`} />)}</div>
+              <div className="legend">
+                {segs.map((s) => <span key={s.i.pid}><i style={{ background: s.col }} />{s.i.short} {rm(s.i.cost)}</span>)}
+                {!r.ideal && tt.left > 0 ? <span><i style={{ background: "var(--divider)", border: "1px solid var(--border)" }} />{t("Unspent {x}", { x: rm(tt.left) })}</span> : null}
+              </div>
+            </div>
+          ) : null}
+        </details>
         {r.ideal ? null : <WhatIf key={r.at + r.budget} r={r} />}
       </div>
 
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
         <h2 className="card-title">{t(f === "buy" ? "Buy" : f === "wait" ? "Wait" : f === "skip" ? "Don't buy" : "All products")} <span className="muted" style={{ fontWeight: 400 }}>({shown.length})</span></h2>
-        <span className="muted small">{t("Tap a product to see how AI decided · change quantities with − / +")}</span>
+        <span className="muted small">{t("Tap a product to see why")}</span>
       </div>
       <div className="plan">
         <div className="plan-cols"><span /><span>{t("Product")}</span><span>{t("Quantity")}</span><span className="right">{t("Cost")}</span><span className="right">{t("Profit")}</span><span>{t("Confidence")}</span><span /></div>
@@ -373,14 +360,14 @@ function PlanRow({ i }) {
         <div className="d-only">{qtyCell}</div>
         <span className="right num d-only">{on ? rm(i.cost) : "—"}</span>
         <span className="right num bold d-only" style={{ color: "var(--green-fg)" }}>{on ? rm(i.profit) : "—"}</span>
-        <span className="cbar d-only" title={t("AI confidence")}><span><i style={{ width: `${g.conf}%`, background: confColor(g.conf) }} /></span>{g.conf}%</span>
+        <span className="cbar d-only" title={t("Confidence")}><span><i style={{ width: `${g.conf}%`, background: confColor(g.conf) }} /></span>{g.conf}%</span>
         <span className="chev"><Icon n="chevronRight" /></span>
       </div>
       {open ? (
         <div className="plan-body">
           <div className="stack" style={{ gap: 14 }}>
             <div className="m-only">{qtyCell}</div>
-            <div><div className="eyebrow" style={{ marginBottom: 8 }}>{t("How AI decided")}</div><DecideStrip i={i} /></div>
+            <div><div className="eyebrow" style={{ marginBottom: 8 }}>{t("How it was worked out")}</div><DecideStrip i={i} /></div>
             <div>
               <div className="eyebrow">{t("Stock runway")}</div>
               <div className="runway"><i style={{ width: `${cover}%`, background: coverCol }} /></div>
@@ -436,10 +423,10 @@ function AccuracyView() {
   return (
     <div className="card card-pad" style={{ borderColor: "var(--ai-br)" }}>
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", marginBottom: 6 }}>
-        <div className="row" style={{ gap: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="target" /></span><h2 className="card-title">{t("Is the AI accurate? A backtest")}</h2></div>
+        <div className="row" style={{ gap: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="target" /></span><h2 className="card-title">{t("How accurate is the forecast?")}</h2></div>
         <span className="chip chip-ai">{range} → {t("predict {m}", { m: last })}</span>
       </div>
-      <p className="muted" style={{ marginBottom: 16 }}>{t("We hid {last}'s sales from the AI, asked it to predict {last} using only {range}, then compared with what really sold. Same formula as the restock plan.", { last, range })}</p>
+      <p className="muted" style={{ marginBottom: 16 }}>{t("We hid {last}'s sales, predicted {last} from {range} only, then compared with what really sold.", { last, range })}</p>
       {multi.tests ? <div className="notice ai" style={{ marginBottom: 16 }}><Icon n="activity" size={16} /><span>{t("Across every month with 3 months before it ({n} tests): {a} average error with the current forecast settings, {b} for the simple “average of the last 3 months” guess.", { n: multi.tests, a: <b>{pct(multi.error)}</b>, b: pct(multi.baseline) })}</span></div> : null}
       <div className="budget-tiles">
         {tile("target", "ai", t("Average error"), pct(mape))}
@@ -447,7 +434,7 @@ function AccuracyView() {
         {tile("warning", worst.verdict === "Off" ? "red" : "amber", t("Biggest miss"), `${worst.p.short} ${pct(worst.err)}`)}
       </div>
       <div className="scroll-x"><table style={{ minWidth: 660 }}>
-        <thead><tr><th>{t("Product")}</th><th>{t("Forecast vs actual")}</th><th className="right">{t("AI said")}</th><th className="right">{t("Really sold")}</th><th className="right">{t("Difference")}</th><th>{t("Result")}</th></tr></thead>
+        <thead><tr><th>{t("Product")}</th><th>{t("Forecast vs actual")}</th><th className="right">{t("Forecast")}</th><th className="right">{t("Really sold")}</th><th className="right">{t("Difference")}</th><th>{t("Result")}</th></tr></thead>
         <tbody>{bt.map((x) => (
           <tr key={x.p.id}>
             <td className="bold">{x.p.name}</td>
@@ -459,11 +446,11 @@ function AccuracyView() {
           </tr>
         ))}</tbody>
       </table></div>
-      <div className="legend" style={{ marginTop: 10 }}><span><i style={{ background: "var(--ai)" }} />{t("AI forecast")}</span><span><i style={{ background: "var(--text-3)" }} />{t("Really sold")}</span><span>{t("Accurate ≤ 10% · Close ≤ 20% · Off > 20%")}</span></div>
+      <div className="legend" style={{ marginTop: 10 }}><span><i style={{ background: "var(--ai)" }} />{t("Forecast")}</span><span><i style={{ background: "var(--text-3)" }} />{t("Really sold")}</span><span>{t("Accurate ≤ 10% · Close ≤ 20% · Off > 20%")}</span></div>
       <ul className="bullets" style={{ marginTop: 16 }}>
         <li><DotIc ic="check" tone="green" size={15} /><span>{t("Best: {name}, only {p} off. Steady sellers are easy to predict.", { name: <strong>{best.p.short}</strong>, p: pct(best.err) })}</span></li>
-        {under.length ? <li><DotIc ic="up" tone="amber" size={15} /><span>{t("Fast risers are under-forecast ({list}). That's why AI adds safety stock on top of the forecast.", { list: list(under.map((x) => `${x.p.short} ${pct(x.err)}`)) })}</span></li> : null}
-        {off.length ? <li><DotIc ic="warning" tone="red" size={15} /><span>{t("Off: {list}. Sales jumped suddenly, so AI shows lower confidence and a person should decide.", { list: list(off.map((x) => x.p.short)) })}</span></li> : null}
+        {under.length ? <li><DotIc ic="up" tone="amber" size={15} /><span>{t("Fast risers are under-forecast ({list}). That's why StockNow adds safety stock on top.", { list: list(under.map((x) => `${x.p.short} ${pct(x.err)}`)) })}</span></li> : null}
+        {off.length ? <li><DotIc ic="warning" tone="red" size={15} /><span>{t("Off: {list}. Sales jumped suddenly, so confidence is lower and a person should decide.", { list: list(off.map((x) => x.p.short)) })}</span></li> : null}
         <li><DotIc ic="activity" tone="blue" size={15} /><span>{t("This check runs on your own sales history, so accuracy is measured for your shop, not just claimed.")}</span></li>
       </ul>
     </div>
@@ -492,7 +479,6 @@ function ForecastSettings() {
   const { text: f, range: rangeText } = useSettingText();
   const owner = can("forecastSettings");
   const cfg = configOf(d), saved = d.settings.forecastConfig, months = d.settings.salesMonths.length, mode = historyMode(months);
-  const type = BUSINESS_TYPES[d.settings.businessType] || BUSINESS_TYPES.clothing;
   const [st, setSt] = useState({ phase: "idle" }); // idle | asking | proposal | error
   const [edit, setEdit] = useState(null); // the proposal's values as the person adjusts them
   const [secs, setSecs] = useState(0);
@@ -530,8 +516,8 @@ function ForecastSettings() {
   const setVal = (k, raw) => setEdit((e) => ({ ...e, [k]: raw === "" || !Number.isFinite(Number(raw)) ? "" : SETTINGS_UI[k].fromUi(Number(raw)) }));
   const label = (k) => <><span>{t(SETTINGS_UI[k].label)}</span><div className="faint small setting-help">{t(SETTINGS_UI[k].help)}</div></>;
   const pc = (x) => `${(x * 100).toFixed(1)}%`;
-  const sourceChip = !saved ? <span className="chip chip-grey">{t("Defaults for {type}", { type: t(type.label) })}</span>
-    : saved.source === "ai" ? <span className="chip chip-ai"><Icon n="spark" size={12} /> {t("AI-assisted")} · {saved.model || "Gemini"}</span>
+  const sourceChip = !saved ? <span className="chip chip-grey">{t("Default settings")}</span>
+    : saved.source === "ai" ? <span className="chip chip-ai"><Icon n="spark" size={12} /> {t("Suggested from your sales")}</span>
       : <span className="chip chip-blue">{t("Manually adjusted")}</span>;
 
   return (
@@ -541,8 +527,8 @@ function ForecastSettings() {
           <div className="row" style={{ gap: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="settings" /></span><h2 className="card-title">{t("Adaptive forecast settings")}</h2></div>
           {sourceChip}
         </div>
-        <p className="muted small" style={{ marginBottom: 12 }}>{t("The forecast and restock maths always run in StockNow. These settings tune it to your business. Gemini can propose them from your sales patterns; you approve before anything changes.")}</p>
-        <div className={`notice ${mode.key === "enough" ? "ai" : "amber"}`} style={{ marginBottom: 14 }}><Icon n="activity" size={16} /><span><b>{t(mode.label)}</b> ({t("{n} months of sales", { n: months })}, {t(type.label)}). {t(mode.text)}</span></div>
+        <p className="muted small" style={{ marginBottom: 12 }}>{t("These settings fine-tune the forecast for your shop. StockNow can suggest them from your past sales; nothing changes until you approve.")}</p>
+        <div className={`notice ${mode.key === "enough" ? "ai" : "amber"}`} style={{ marginBottom: 14 }}><Icon n="activity" size={16} /><span><b>{t(mode.label)}</b> ({t("{n} months of sales", { n: months })}). {t(mode.text)}</span></div>
         <div className="scroll-x"><table className="mini">
           <thead><tr><th>{t("Setting")}</th><th className="right">{t("In use")}</th><th className="right">{t("Default")}</th><th className="right">{t("Allowed")}</th></tr></thead>
           <tbody>{SETTING_KEYS.map((k) => (
@@ -556,18 +542,18 @@ function ForecastSettings() {
         {saved?.explanation ? <div className="summary-box" style={{ marginTop: 12 }}><span className="eyebrow" style={{ color: "var(--ai-fg)" }}>{t("Why these settings")}</span><p className="ai-text" style={{ marginTop: 4 }}>{saved.explanation}</p></div> : null}
         {owner ? (
           <div className="row wrap" style={{ gap: 10, marginTop: 16 }}>
-            <button className="btn btn-ai" disabled={offline || mode.key !== "enough" || st.phase === "asking"} onClick={ask}><Icon n="spark" size={16} /> {t(st.phase === "proposal" ? "Ask Gemini again" : "Ask Gemini for settings")}</button>
+            <button className="btn btn-ai" disabled={offline || mode.key !== "enough" || st.phase === "asking"} onClick={ask}><Icon n="spark" size={16} /> {t(st.phase === "proposal" ? "Suggest again" : "Suggest settings from my sales")}</button>
             {saved ? <button className="btn btn-secondary" onClick={() => act("resetForecastConfig")}>{t("Reset to defaults")}</button> : null}
           </div>
-        ) : <div className="notice blue" style={{ marginTop: 14 }}><Icon n="info" size={16} /><span>{t("View only. The Owner or a Manager can ask Gemini and approve settings.")}</span></div>}
+        ) : <div className="notice blue" style={{ marginTop: 14 }}><Icon n="info" size={16} /><span>{t("View only. The Owner or a Manager can change these settings.")}</span></div>}
       </div>
 
       {st.phase === "asking" ? (
         <div className="card thinking" style={{ borderColor: "var(--ai-br)" }} aria-live="polite" aria-busy="true">
-          <div className="row" style={{ marginBottom: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="bot" size={20} /></span><h2 className="card-title">{t("Gemini is proposing settings…")}</h2></div>
+          <div className="row" style={{ marginBottom: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="activity" size={20} /></span><h2 className="card-title">{t("Finding the best settings…")}</h2></div>
           <div className="think-step done"><span className="think-dot"><Icon n="check" size={12} sw={3} /></span>{t("Measuring your sales patterns ({n} products, {m} months)", { n: d.products.length, m: months })}</div>
           <div className="think-step done"><span className="think-dot"><Icon n="check" size={12} sw={3} /></span>{t("Backtesting every allowed forecast blend on your past months")}</div>
-          <div className="think-step now"><span className="think-dot" /><span>{t("Gemini is reading the statistics (not your raw sales)")} <span className="faint">· {t("{n} s", { n: secs })}</span></span></div>
+          <div className="think-step now"><span className="think-dot" /><span>{t("Looking at your sales patterns (not individual sales)")} <span className="faint">· {t("{n} s", { n: secs })}</span></span></div>
           <div className="bar indeterminate"><i /></div>
         </div>
       ) : null}
@@ -578,9 +564,9 @@ function ForecastSettings() {
         <div className="card card-pad" style={{ borderColor: "var(--ai)" }}>
           <div className="row wrap" style={{ justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
             <h2 className="card-title">{t("Proposal to review")}</h2>
-            <span className="chip chip-ai"><Icon n="bot" size={12} /> {edited ? t("Adjusted by you") : t("Proposed by {model}", { model: st.model })}</span>
+            <span className="chip chip-ai" title={st.model || ""}><Icon n="spark" size={12} /> {edited ? t("Adjusted by you") : t("Suggested from your sales")}</span>
           </div>
-          {st.explanation ? <div className="summary-box" style={{ marginTop: 0, marginBottom: 14 }}><span className="eyebrow" style={{ color: "var(--ai-fg)" }}>{t("Gemini's reasoning")}</span><p className="ai-text" style={{ marginTop: 4 }}>{st.explanation}</p></div> : null}
+          {st.explanation ? <div className="summary-box" style={{ marginTop: 0, marginBottom: 14 }}><span className="eyebrow" style={{ color: "var(--ai-fg)" }}>{t("Why these settings")}</span><p className="ai-text" style={{ marginTop: 4 }}>{st.explanation}</p></div> : null}
           <div className="scroll-x"><table className="mini">
             <thead><tr><th>{t("Setting")}</th><th className="right">{t("In use")}</th><th className="right">{t("Proposed")}</th><th className="right">{t("Allowed")}</th></tr></thead>
             <tbody>{SETTING_KEYS.map((k) => {
@@ -607,7 +593,7 @@ function ForecastSettings() {
               <div className="btile"><DotIc ic="activity" tone="blue" /><div className="stack"><span className="muted small">{t("Simple 3-month average")}</span><span className="v">{pc(after.baseline)}</span></div></div>
             </div>
           ) : null}
-          {after ? <div className={`notice ${better ? "green" : worse ? "amber" : "blue"}`} style={{ marginTop: 12 }}><Icon n={better ? "check" : "info"} size={16} /><span>{better ? t("More accurate on your past months. Measured on the same months Gemini saw, so treat it as a guide, not a promise.") : worse ? t("Less accurate on your past months. We suggest keeping the current settings.") : t("Same accuracy on your past months; the change only affects safety stock, overstock or margin rules.")}</span></div> : null}
+          {after ? <div className={`notice ${better ? "green" : worse ? "amber" : "blue"}`} style={{ marginTop: 12 }}><Icon n={better ? "check" : "info"} size={16} /><span>{better ? t("More accurate on your past months. Treat it as a guide, not a promise.") : worse ? t("Less accurate on your past months. We suggest keeping the current settings.") : t("Same accuracy on your past months; the change only affects safety stock, overstock or margin rules.")}</span></div> : null}
           {owner ? (
             <div className="row wrap" style={{ gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
               <button className="btn btn-secondary" onClick={() => { setSt({ phase: "idle" }); setEdit(null); }}>{t("Keep current settings")}</button>
@@ -615,7 +601,7 @@ function ForecastSettings() {
             </div>
           ) : null}
           <details className="more" style={{ marginTop: 12 }}>
-            <summary><Icon n="info" size={14} /> {t("What Gemini was given")}</summary>
+            <summary><Icon n="info" size={14} /> {t("What was used to suggest this")}</summary>
             <p className="muted small" style={{ marginTop: 8 }}>{t("Only derived numbers: per product the average monthly sales, variability, trend, last month vs earlier, margin, plus the measured error for each forecast blend. No raw sales records, customers or supplier details.")}</p>
           </details>
         </div>

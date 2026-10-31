@@ -8,28 +8,16 @@ export const geminiConfigured = () => !!process.env.GEMINI_API_KEY;
 
 /* If the chosen model is overloaded or too slow, these are tried next (tested on 31 Oct 2026: gemini-3.8-flash
    timed out at 30 s while 3.5-flash answered in 1–8 s and 3.5-flash-lite in under 1 s). GEMINI_FALLBACK_MODELS overrides. */
-const fallbackModels = () =>
-  (
-    process.env.GEMINI_FALLBACK_MODELS ||
-    "gemini-3.5-flash,gemini-3.5-flash-lite"
-  )
-    .split(",")
-    .map((m) => m.trim())
-    .filter(Boolean);
-export const geminiModels = () => [
-  ...new Set([geminiModel(), ...fallbackModels()]),
-];
+const fallbackModels = () => (process.env.GEMINI_FALLBACK_MODELS || "gemini-3.5-flash,gemini-3.5-flash-lite")
+  .split(",").map((m) => m.trim()).filter(Boolean);
+export const geminiModels = () => [...new Set([geminiModel(), ...fallbackModels()])];
 
 const TIMEOUT_MS = 12000;
 const BUSY = new Set([408, 429, 500, 502, 503, 504]);
 
 /* Numbers in a text. List markers at the start of a line ("1." / "2)") are layout, not facts. */
-const numbersIn = (text) =>
-  (
-    String(text)
-      .replace(/^\s*\d+[.)]\s+/gm, "")
-      .match(/\d[\d,]*(?:\.\d+)?/g) || []
-  ).map((n) => n.replace(/,/g, "").replace(/\.0+$/, ""));
+const numbersIn = (text) => (String(text).replace(/^\s*\d+[.)]\s+/gm, "").match(/\d[\d,]*(?:\.\d+)?/g) || [])
+  .map((n) => n.replace(/,/g, "").replace(/\.0+$/, ""));
 
 /* True when every number Gemini wrote also appears in the facts (or the task) we gave it. */
 export function numbersMatch(output, facts, task = "") {
@@ -47,48 +35,24 @@ class GeminiError extends Error {
 async function callOnce(model, prompt, maxTokens, asJson = false) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  const send = (generationConfig) =>
-    fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": process.env.GEMINI_API_KEY,
-        },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig,
-        }),
-        signal: ctrl.signal,
-      },
-    );
+  const send = (generationConfig) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig }),
+    signal: ctrl.signal,
+  });
   try {
-    const base = {
-      temperature: 0.3,
-      maxOutputTokens: maxTokens,
-      ...(asJson ? { responseMimeType: "application/json" } : {}),
-    };
+    const base = { temperature: 0.3, maxOutputTokens: maxTokens, ...(asJson ? { responseMimeType: "application/json" } : {}) };
     // Thinking is not needed to reword facts. Models that don't accept this setting reject it, so retry without it.
     let res = await send({ ...base, thinkingConfig: { thinkingBudget: 0 } });
     if (res.status === 400) res = await send(base);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new GeminiError(
-        body.error?.message || `Gemini HTTP ${res.status}`,
-        res.status,
-      );
+      throw new GeminiError(body.error?.message || `Gemini HTTP ${res.status}`, res.status);
     }
     const json = await res.json();
-    const text = (json.candidates?.[0]?.content?.parts || [])
-      .map((p) => p.text || "")
-      .join("")
-      .trim();
-    if (!text)
-      throw new GeminiError(
-        `Gemini returned no text (${json.candidates?.[0]?.finishReason || "empty"})`,
-        408,
-      );
+    const text = (json.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("").trim();
+    if (!text) throw new GeminiError(`Gemini returned no text (${json.candidates?.[0]?.finishReason || "empty"})`, 408);
     return text;
   } catch (e) {
     if (e.name === "AbortError") throw new GeminiError("Gemini timed out", 408);
@@ -115,19 +79,8 @@ async function callGemini(prompt, maxTokens, asJson = false) {
 
 /* Returns { text, source: "gemini" | "template", reason?, note? }. Never throws.
    reason: "no_key" (GEMINI_API_KEY not set), "error" (Gemini failed or timed out), "numbers" (reply failed the number check). */
-export async function writeWithGemini({
-  task,
-  facts,
-  fallback,
-  maxTokens = 300,
-}) {
-  if (!geminiConfigured())
-    return {
-      text: fallback,
-      source: "template",
-      reason: "no_key",
-      note: "GEMINI_API_KEY is not set",
-    };
+export async function writeWithGemini({ task, facts, fallback, maxTokens = 300 }) {
+  if (!geminiConfigured()) return { text: fallback, source: "template", reason: "no_key", note: "GEMINI_API_KEY is not set" };
   const prompt = `${task}
 
 Rules:
@@ -139,72 +92,34 @@ ${facts}`;
   try {
     const { text, model } = await callGemini(prompt, maxTokens);
     if (!numbersMatch(text, facts, task)) {
-      console.warn(
-        "Gemini reply failed the number check, template used:",
-        text,
-      );
-      return {
-        text: fallback,
-        source: "template",
-        reason: "numbers",
-        note: `${model} used a number that is not in the facts`,
-      };
+      console.warn("Gemini reply failed the number check, template used:", text);
+      return { text: fallback, source: "template", reason: "numbers", note: `${model} used a number that is not in the facts` };
     }
     return { text, source: "gemini", model, note: `Written by ${model}` };
   } catch (e) {
     console.warn("Gemini failed, template used:", e.message);
-    return {
-      text: fallback,
-      source: "template",
-      reason: "error",
-      note: e.message,
-    };
+    return { text: fallback, source: "template", reason: "error", note: e.message };
   }
 }
 
-/* Settings → AI "Test Gemini": one tiny real call, so the team can see the key and model work on the server. */
+/* Settings → AI "Test connection": one tiny real call, so the team can see the key and model work on the server. */
 export async function checkGemini() {
   const chosen = geminiModel();
-  if (!geminiConfigured())
-    return {
-      ok: false,
-      configured: false,
-      model: chosen,
-      error: "GEMINI_API_KEY is not set on the server.",
-    };
+  if (!geminiConfigured()) return { ok: false, configured: false, model: chosen, error: "GEMINI_API_KEY is not set on the server." };
   const start = Date.now();
   try {
     const { text, model } = await callGemini("Reply with exactly: OK", 64);
-    return {
-      ok: true,
-      configured: true,
-      model,
-      chosen,
-      ms: Date.now() - start,
-      reply: text.slice(0, 40),
-    };
+    return { ok: true, configured: true, model, chosen, ms: Date.now() - start, reply: text.slice(0, 40) };
   } catch (e) {
-    return {
-      ok: false,
-      configured: true,
-      model: chosen,
-      ms: Date.now() - start,
-      error: e.message,
-    };
+    return { ok: false, configured: true, model: chosen, ms: Date.now() - start, error: e.message };
   }
 }
 
 /* Adaptive forecasting: Gemini reads derived sales statistics (never the raw records) and proposes forecast
    settings as JSON. Returns { ok, values, explanation, model } or { ok: false, error }. The caller validates,
    backtests and waits for a person to approve; nothing here changes the shop. */
-export async function configureForecasting({
-  businessProfile,
-  statistics,
-  current,
-  bounds,
-}) {
-  if (!geminiConfigured())
-    return { ok: false, error: "GEMINI_API_KEY is not set on the server." };
+export async function configureForecasting({ businessProfile, statistics, current, bounds }) {
+  if (!geminiConfigured()) return { ok: false, error: "GEMINI_API_KEY is not set on the server." };
   const prompt = `You tune the settings of a deterministic inventory forecasting engine for one small business.
 The engine forecasts next month's sales per product as: wmaWeight × (3:2:1 weighted average of the last 3 months) + (1 − wmaWeight) × (linear trend over all months).
 A higher wmaWeight reacts more to the latest months; a lower one follows the long-term direction more.
@@ -224,18 +139,9 @@ In the explanation, never use the setting names above. Say them in plain words w
   try {
     const { text, model } = await callGemini(prompt, 700, true);
     let raw;
-    try {
-      raw = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ""));
-    } catch {
-      return { ok: false, model, error: "Gemini's reply was not valid JSON." };
-    }
+    try { raw = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, "")); } catch { return { ok: false, model, error: "Gemini's reply was not valid JSON." }; }
     const { explanation = "", ...values } = raw || {};
-    return {
-      ok: true,
-      model,
-      values,
-      explanation: String(explanation).slice(0, 600),
-    };
+    return { ok: true, model, values, explanation: String(explanation).slice(0, 600) };
   } catch (e) {
     return { ok: false, error: e.message };
   }

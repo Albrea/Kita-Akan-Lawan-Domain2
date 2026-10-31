@@ -6,9 +6,10 @@ import {
   Plus, Receipt, Search, Send, ShoppingCart, SlidersHorizontal, Sparkles, Store, Tag, Target, Trash2, TrendingDown, TrendingUp,
   TriangleAlert, Truck, Undo2, Users, Wallet, WifiOff, X, Languages, Lock, Download, Calendar,
 } from "lucide-react";
+import { useState } from "react";
 import { useApp } from "./App.jsx";
 import { lateDays, poOf } from "@/lib/engine.js";
-import { ROLE_LABEL } from "@/lib/actions.js";
+import { ROLE_LABEL, deptOf, roleLabel } from "@/lib/actions.js";
 
 const ICONS = {
   grid: LayoutGrid, spark: Sparkles, approve: ClipboardCheck, box: Package, in: ArrowDownToLine, out: ArrowUpFromLine, store: Store,
@@ -66,10 +67,12 @@ export function Empty({ title, text, ic = "search" }) {
 
 export const FieldError = ({ msg }) => (msg ? <div className="hint err">{msg}</div> : null);
 
-export function RoleChip({ role }) {
+/* Role chip. Pass `user` to show Staff with their department ("Inventory staff", "Finance staff"). */
+export function RoleChip({ role, user }) {
   const { t } = useApp();
-  const cls = role === "OWNER" ? "chip-blue" : role === "MANAGER" || role === "SYSTEM" ? "chip-ai" : "chip-grey";
-  return <span className={`chip ${cls}`}>{ROLE_LABEL[role] ? t(ROLE_LABEL[role]) : role}</span>;
+  const r = user?.role || role;
+  const cls = r === "OWNER" ? "chip-blue" : r === "MANAGER" || r === "SYSTEM" ? "chip-ai" : user && deptOf(user) === "FINANCE" ? "chip-amber" : "chip-grey";
+  return <span className={`chip ${cls}`}>{user ? t(roleLabel(user)) : ROLE_LABEL[r] ? t(ROLE_LABEL[r]) : r}</span>;
 }
 
 export function ReqChip({ status }) {
@@ -88,23 +91,22 @@ export function PoChip({ po }) {
   return <span className="chip chip-blue">{t("Expected {date}", { date: day(po.expectedAt) })}</span>;
 }
 
-/* Where AI text came from: Gemini, or the built-in template and why (no key, error, or the number check). */
+/* Where written text came from, in plain words. The technical detail (the Gemini model, or why the
+   standard wording was used: no key, no answer, or the number check) is in the hover text. */
 export function AiSourceChip({ s, long = false }) {
   const { t, offline } = useApp();
-  const [cls, label] = !s || s.loading ? ["chip-ai", "Gemini is writing…"]
-    : s.source === "gemini" ? ["chip-ai", long ? "Written by Gemini from these numbers" : "Written by Gemini"]
-      : offline || s.source === "offline" ? ["chip-amber", "Offline: template text"]
-        : s.reason === "prototype" ? ["chip-amber", "Prototype: Gemini simulated"]
-        : s.reason === "no_key" ? ["chip-amber", "Template: Gemini not set up"]
-          : s.reason === "numbers" ? ["chip-amber", "Template: Gemini's numbers didn't match"]
-            : ["chip-amber", "Template: Gemini didn't answer"];
-  return <span className={`chip ${cls}`} title={s?.note || ""}><Icon n="bot" size={12} /> {t(label)}</span>;
+  const [cls, label] = !s || s.loading ? ["chip-ai", "Writing…"]
+    : s.source === "gemini" ? ["chip-ai", long ? "Written from these numbers" : "Written for you"]
+      : offline || s.source === "offline" ? ["chip-amber", "Offline: standard wording"]
+        : ["chip-amber", "Standard wording"];
+  const why = s?.reason === "prototype" ? "Prototype: the writing help is simulated." : s?.reason === "no_key" ? "Writing help is not set up (Settings → Smart features)." : s?.reason === "numbers" ? "The written text used a number StockNow didn't calculate, so standard wording is shown." : "";
+  return <span className={`chip ${cls}`} title={[s?.note, why].filter(Boolean).join(" · ")}><Icon n="message" size={12} /> {t(label)}</span>;
 }
 
 /* A supplier order code that opens it on Stock In (highlighted there). */
 export function PoLink({ po }) {
-  const { go, t } = useApp();
-  if (po.status === "RECEIVED") return <span className="mono">{po.code}</span>;
+  const { go, can, t } = useApp();
+  if (po.status === "RECEIVED" || !can("stock")) return <span className="mono">{po.code}</span>; // Finance staff don't open Stock In
   return <button className="btn-link mono po-link" title={t("Open on Stock In")} onClick={() => go("stock-in", { stockInTab: "orders", focusPo: po.id })}>{po.code}</button>;
 }
 
@@ -162,5 +164,62 @@ export function Bullets({ items, style }) {
     <ul className="bullets" style={style}>
       {items.map((x, k) => <li key={k}><DotIc ic={x.ic} tone={x.tone} size={15} /><span><Md text={x.h} /></span></li>)}
     </ul>
+  );
+}
+
+/* ---------- Charts ---------- */
+/* Fixed colour order for parts of a whole (validated for colour-blind separation); "Other" is always grey. */
+export const CAT = ["var(--cat1)", "var(--cat2)", "var(--cat3)", "var(--cat4)", "var(--cat5)"];
+
+/* Keeps the biggest parts and folds the rest into one grey "Other" slice, so a pie never has more than 6 parts. */
+export function topParts(parts, keep = 5, other = "Other") {
+  const sorted = parts.filter((p) => p.value > 0).sort((a, b) => b.value - a.value);
+  if (sorted.length <= keep + 1) return sorted;
+  const rest = sorted.slice(keep).reduce((a, p) => a + p.value, 0);
+  return [...sorted.slice(0, keep), { label: other, value: rest, other: true }];
+}
+
+/* Donut (pie) chart with a legend that lists every part's value and share, so nothing depends on colour alone.
+   Hovering a slice or a legend row shows that part in the middle. parts: [{ label, value, other? }] */
+export function PieChart({ title, sub, parts, format, centerLabel, foot }) {
+  const { t } = useApp();
+  const [on, setOn] = useState(null);
+  const total = parts.reduce((a, p) => a + p.value, 0);
+  const R = 72, r = 46, C = 80;
+  const color = (p, i) => (p.other ? "var(--cat-other)" : CAT[i % CAT.length]);
+  const pt = (rad, a) => `${C + rad * Math.sin(a)} ${C - rad * Math.cos(a)}`;
+  let a0 = 0;
+  const arcs = parts.map((p, i) => {
+    const a1 = a0 + (p.value / total) * Math.PI * 2, big = a1 - a0 > Math.PI ? 1 : 0;
+    const d = parts.length === 1 ? null : `M ${pt(R, a0)} A ${R} ${R} 0 ${big} 1 ${pt(R, a1)} L ${pt(r, a1)} A ${r} ${r} 0 ${big} 0 ${pt(r, a0)} Z`;
+    a0 = a1;
+    return { p, i, d };
+  });
+  const share = (v) => `${Math.round((v / total) * 100)}%`;
+  const cur = on === null ? null : parts[on];
+  return (
+    <div className="card card-pad pie-card">
+      <div className="stack" style={{ marginBottom: 12 }}><h2 className="card-title">{title}</h2>{sub ? <span className="muted small">{sub}</span> : null}</div>
+      {total > 0 ? (
+        <div className="pie-wrap">
+          <svg viewBox="0 0 160 160" className="pie" role="img" aria-label={`${title}: ${parts.map((p) => `${p.label} ${format(p.value)}`).join(", ")}`}>
+            {arcs.map(({ p, i, d }) => d
+              ? <path key={p.label} d={d} fill={color(p, i)} stroke="var(--card)" strokeWidth="2" strokeLinejoin="round" opacity={on === null || on === i ? 1 : 0.35}
+                  onMouseEnter={() => setOn(i)} onMouseLeave={() => setOn(null)}><title>{`${p.label}: ${format(p.value)} (${share(p.value)})`}</title></path>
+              : <circle key={p.label} cx={C} cy={C} r={(R + r) / 2} fill="none" stroke={color(p, i)} strokeWidth={R - r} />)}
+            <text x={C} y={C - 4} textAnchor="middle" className="pie-center-v">{cur ? share(cur.value) : format(total)}</text>
+            <text x={C} y={C + 13} textAnchor="middle" className="pie-center-l">{cur ? (cur.label.length > 14 ? cur.label.slice(0, 13) + "…" : cur.label) : centerLabel}</text>
+          </svg>
+          <ul className="pie-legend">
+            {parts.map((p, i) => (
+              <li key={p.label} className={on === i ? "on" : ""} onMouseEnter={() => setOn(i)} onMouseLeave={() => setOn(null)}>
+                <i style={{ background: color(p, i) }} /><span className="pl-name">{p.label}</span><span className="num pl-v">{format(p.value)}</span><span className="num muted pl-s">{share(p.value)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : <Empty title={t("Nothing to show yet")} text={t("This fills in as the shop records sales and stock.")} ic="activity" />}
+      {foot ? <p className="muted small" style={{ marginTop: 10 }}>{foot}</p> : null}
+    </div>
   );
 }

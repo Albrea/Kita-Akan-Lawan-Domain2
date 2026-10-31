@@ -13,7 +13,7 @@ export default function Suppliers() {
   return (
     <>
       <div className="page-head">
-        <div><h1 className="page-title">{t("Suppliers")}</h1><p className="page-sub">{t("Delivery time sets the expected date on every order.")}</p></div>
+        <div><h1 className="page-title">{t("Suppliers")}</h1><p className="page-sub">{t("Who you buy from, and how long they take to deliver.")}</p></div>
         {edit ? <button className="btn btn-primary" onClick={() => openModal("supplier")}><Icon n="plus" /> {t("Add supplier")}</button> : <span className="chip chip-grey">{t("View only")}</span>}
       </div>
       <div className="card">

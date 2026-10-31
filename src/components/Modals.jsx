@@ -93,7 +93,7 @@ function BudgetModal() {
       <div className="field">
         <label className="label" htmlFor="mb">{t("Money set aside for buying stock each month (RM)")}</label>
         <input className={`input ${err.budget ? "error" : ""}`} id="mb" inputMode="numeric" autoFocus value={f.budget} onChange={(e) => set("budget", e.target.value.replace(/[^0-9]/g, ""))} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
-        {err.budget ? <FieldError msg={err.budget} /> : <div className="hint">{t("Supplier orders and manual stock in use it up; stock returned to a supplier gives it back. Sales are revenue and don't refill it. AI plans with what's left, and drafts a plan automatically on day {day}. StockNow never moves real money.", { day: d.settings.planDay })}</div>}
+        {err.budget ? <FieldError msg={err.budget} /> : <div className="hint">{t("Supplier orders and manual stock in use it up; stock returned to a supplier gives it back. Sales don't refill it. Restock plans use what's left. StockNow never moves real money.", { day: d.settings.planDay })}</div>}
       </div>
     </Modal>
   );
@@ -139,7 +139,7 @@ function MessageModal({ poId, msgKind }) {
     <Modal title={kind === "order" ? t("Send {code} to {sup}", { code: po.code, sup: supName(d, po.sup) }) : t("Remind {sup}", { sup: supName(d, po.sup) })} onClose={closeModal}
       foot={<><Cancel /><button className="btn btn-primary" onClick={markSent}><Icon n="check" size={16} sw={2.2} /> {t("Mark as sent")}</button></>}>
       <div className="row wrap" style={{ justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
-        <p className="muted" style={{ flex: 1, minWidth: 220 }}>{kind === "order" ? t("AI wrote this from the approved order. Edit it if you like, then send it on WhatsApp.") : t("{code} is {n} days late. AI drafted a polite reminder.", { code: po.code, n: lateDays(po) })}</p>
+        <p className="muted" style={{ flex: 1, minWidth: 220 }}>{kind === "order" ? t("Written for you from the approved order. Edit it if you like, then send it on WhatsApp.") : t("{code} is {n} days late. Here is a polite reminder.", { code: po.code, n: lateDays(po) })}</p>
         <AiSourceChip s={source} />
       </div>
       <textarea ref={area} className="textarea" rows={10} aria-label={t("Message")} value={text} onChange={(e) => { edited.current = true; setText(e.target.value); }} />
@@ -223,9 +223,9 @@ function ProductModal({ id }) {
         <div className="field"><label className="label" htmlFor="p-cat">{t("Category")} <span className="req">*</span></label><Select id="p-cat" value={f.cat} error={!!err.cat} onChange={(v) => set("cat", v)} options={d.categories.map((x) => [x.id, x.name])} /><FieldError msg={err.cat} /></div>
         {input("cost", t("Cost price (RM)"), { inputMode: "decimal", placeholder: "35.00", clean: (v) => v.replace(/[^0-9.]/g, "") })}
         {input("sell", t("Selling price (RM)"), { inputMode: "decimal", placeholder: "79.00", clean: (v) => v.replace(/[^0-9.]/g, ""), hint: c > 0 && s > 0 ? t("Margin {p}", { p: pct((s - c) / s) }) : t("Margin is calculated automatically.") })}
-        {input("min", t("Minimum stock"), { inputMode: "numeric", clean: (v) => v.replace(/[^0-9]/g, ""), hint: t("AI treats stock below this as urgent.") }, false)}
+        {input("min", t("Minimum stock"), { inputMode: "numeric", clean: (v) => v.replace(/[^0-9]/g, ""), hint: t("Stock below this counts as urgent.") }, false)}
         <div className="field"><label className="label" htmlFor="p-sup">{t("Supplier")}</label><Select id="p-sup" value={f.sup} onChange={(v) => set("sup", v)} options={[["", t("No supplier")], ...d.suppliers.map((x) => [x.id, x.name])]} /></div>
-        {p ? null : <div className="span2 hint">{t("New products start at 0 stock. AI needs 3 months of sales before it can forecast them.")}</div>}
+        {p ? null : <div className="span2 hint">{t("New products start at 0 stock. StockNow needs 3 months of sales before it can forecast them.")}</div>}
       </div>
     </Modal>
   );
@@ -265,10 +265,18 @@ function SupplierModal({ id }) {
   );
 }
 
+/* The roles the Owner can give, with what each one does. */
+export const roleOptions = (t) => [["MANAGER", t("Manager")], ["STAFF_INVENTORY", t("Inventory staff")], ["STAFF_FINANCE", t("Finance staff")]];
+const ROLE_HINT = {
+  MANAGER: "Can approve plans and manage products, categories and suppliers.",
+  STAFF_INVENTORY: "Records stock, receives deliveries and sends restock plans for approval.",
+  STAFF_FINANCE: "Sees sales, the budget, supplier orders and approvals. Can't change stock.",
+};
+
 function GrantModal({ pid }) {
   const { d, act, closeModal, t } = useApp();
   const free = d.people.filter((u) => !u.role);
-  const { f, set, err, saving, submit } = useForm({ pid: pid || free[0]?.id || "", role: "STAFF" });
+  const { f, set, err, saving, submit } = useForm({ pid: pid || free[0]?.id || "", role: "STAFF_INVENTORY" });
   const save = async () => { const out = await submit(() => act("grantAccess", f)); if (out.ok) closeModal(); };
   return (
     <Modal title={t("Give StockNow access")} size="sm" onClose={closeModal} foot={<><Cancel /><button className="btn btn-primary" disabled={saving} onClick={save}>{t("Give access")}</button></>}>
@@ -279,8 +287,8 @@ function GrantModal({ pid }) {
       </div>
       <div className="field">
         <label className="label" htmlFor="g-r">{t("Role in StockNow")}</label>
-        <Select id="g-r" value={f.role} onChange={(v) => set("role", v)} options={[["STAFF", t("Staff")], ["MANAGER", t("Manager")]]} />
-        <div className="hint">{t(f.role === "MANAGER" ? "Can approve plans and manage products, categories and suppliers." : "Can record stock and send AI plans for approval.")}</div>
+        <Select id="g-r" value={f.role} onChange={(v) => set("role", v)} options={roleOptions(t)} />
+        <div className="hint">{t(ROLE_HINT[f.role])}</div>
       </div>
     </Modal>
   );
@@ -303,6 +311,43 @@ function ConfirmModal({ title, body, label, danger, onOk }) {
 }
 
 /* "Show calculation": every step of the AI's math for one product, with its real numbers. */
+/* Line chart for "Forecast sales for the next 30 days": what really sold each month, the trend line,
+   and the forecast for next month. Hover a month to read its numbers. */
+function ForecastChart({ s, fitted, lin, forecast, months, next }) {
+  const { t } = useApp();
+  const [on, setOn] = useState(null);
+  const W = 560, H = 190, L = 40, Rm = 16, T = 14, B = 28, n = s.length;
+  const trend = [...fitted, lin], top = Math.max(...s, ...trend, forecast, 1);
+  const step = Math.pow(10, Math.floor(Math.log10(top))), nice = Math.ceil(top / step) * step;
+  const ticks = [0, nice / 2, nice];
+  const x = (i) => L + (i * (W - L - Rm)) / n, y = (v) => T + (1 - v / nice) * (H - T - B);
+  const line = (vals) => vals.map((v, i) => `${i ? "L" : "M"} ${x(i)} ${y(v)}`).join(" ");
+  const labels = [...months, next];
+  const tip = on === null ? null : on < n ? `${labels[on]}: ${t("{n} sold", { n: s[on] })} · ${t("trend line")} ${Math.round(trend[on])}` : `${next}: ${t("forecast {n}", { n: forecast })}`;
+  return (
+    <div className="fc-chart">
+      <div className="fc-legend">
+        <span><i className="sw-line" /> {t("Sold")}</span>
+        <span><i className="sw-dash" /> {t("Trend line")}</span>
+        <span><i className="sw-dot" /> {t("Forecast")}</span>
+        {tip ? <span className="fc-tip">{tip}</span> : null}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t("Sales per month and the forecast for next month")} onMouseLeave={() => setOn(null)}>
+        {ticks.map((v) => <g key={v}><line x1={L} x2={W - Rm} y1={y(v)} y2={y(v)} className="fc-grid" /><text x={L - 6} y={y(v) + 4} textAnchor="end" className="fc-axis">{Math.round(v)}</text></g>)}
+        {labels.map((m, i) => <text key={m + i} x={x(i)} y={H - 8} textAnchor="middle" className={`fc-axis ${i === n ? "fc-next" : ""}`}>{m}</text>)}
+        {on !== null ? <line x1={x(on)} x2={x(on)} y1={T} y2={H - B} className="fc-cross" /> : null}
+        <path d={line(trend)} className="fc-trend" />
+        <path d={`M ${x(n - 1)} ${y(s[n - 1])} L ${x(n)} ${y(forecast)}`} className="fc-ahead" />
+        <path d={line(s)} className="fc-sold" />
+        {s.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r="4" className="fc-pt" />)}
+        <circle cx={x(n)} cy={y(forecast)} r="5.5" className="fc-fc" />
+        <text x={x(n)} y={y(forecast) + 20} textAnchor="middle" className="fc-val">{forecast}</text>
+        {labels.map((m, i) => <rect key={"h" + i} x={x(i) - (W - L - Rm) / n / 2} y={T} width={(W - L - Rm) / n} height={H - T - B} fill="transparent" onMouseEnter={() => setOn(i)} />)}
+      </svg>
+    </div>
+  );
+}
+
 function CalcModal({ pid }) {
   const { d, ui, closeModal, t, days, lang } = useApp();
   const r = ui.ai.result || analyse(d, budgetLeft(d)), i = r.items.find((x) => x.pid === pid);
@@ -330,11 +375,13 @@ function CalcModal({ pid }) {
   const Note = ({ children }) => <p className="muted small">{children}</p>;
   const B = ({ children }) => <b>{children}</b>;
   const months = (
-    <div className="scroll-x"><table className="mini"><thead><tr>{M.map((m) => <th key={m} className="right">{m}</th>)}</tr></thead><tbody><tr>{s.map((v, k) => <td key={k} className="right num">{v}</td>)}</tr></tbody></table></div>
+    <div className="fc-table"><div className="eyebrow">{t("Pieces sold each month")}</div>
+      <div className="scroll-x"><table className="mini"><thead><tr>{M.map((m) => <th key={m} className="right">{m}</th>)}</tr></thead><tbody><tr>{s.map((v, k) => <td key={k} className="right num bold">{v}</td>)}</tr></tbody></table></div></div>
   );
   return (
-    <Modal title={t("How AI calculated: {name}", { name: i.name })} size="wide" onClose={closeModal} foot={<button className="btn btn-primary" onClick={closeModal}>{t("Close")}</button>}>
+    <Modal title={t("How StockNow calculated: {name}", { name: i.name })} size="wide" onClose={closeModal} foot={<button className="btn btn-primary" onClick={closeModal}>{t("Close")}</button>}>
       <Step k={1} title={t("Forecast sales for the next 30 days")}>
+        <ForecastChart s={s} fitted={f.fitted} lin={f.lin} forecast={g.forecast} months={M} next={t("Next")} />
         {months}
         <Fm>{t("Recent months count more")}: ({s[n - 1]}×3 + {s[n - 2]}×2 + {s[n - 3]}×1) ÷ 6 = <B>{f1(f.wma)}</B></Fm>
         <Fm>{t("Trend line: sales change {x} a month", { x: `${f.slope >= 0 ? "+" : "−"}${f1(Math.abs(f.slope))}` })} → {t("average")} {f1(f.ym)} + ({f1(f.slope)} × {f1(f.step)}) = <B>{f1(f.lin)}</B></Fm>
@@ -387,7 +434,7 @@ function CalcModal({ pid }) {
             <tr><td className="bold">{t("Priority score")}</td><td className="right num bold">{i.score}</td></tr>
           </tbody></table></div>
           <Note>{t("The budget is filled from the highest score down. {name} is {rank} items worth buying.", { name: i.short, rank: <b>{t("#{a} of {b}", { a: rank, b: ranked.length })}</b> })}</Note>
-        </> : <Note>{t("Not ranked: AI doesn't buy this item.")}</Note>}
+        </> : <Note>{t("Not ranked: StockNow doesn't suggest buying this item.")}</Note>}
       </Step>
       <div className="notice blue" style={{ marginTop: 14 }}><Icon n="info" size={16} /><span>{t("Estimates from {n} months of sales. They don't know about promotions, festivals or competitors, and profit is before rent, wages and delivery. That's why a person approves every plan.", { n })}</span></div>
     </Modal>

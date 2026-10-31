@@ -13,7 +13,7 @@ export const nameOfP = (d, pid) => productOf(d, pid)?.name ?? "Deleted product";
 export const catName = (d, id) => d.categories.find((c) => c.id === id)?.name ?? "—";
 export const supOf = (d, id) => d.suppliers.find((s) => s.id === id);
 export const supName = (d, id) => supOf(d, id)?.name ?? "No supplier";
-export const SYS_USER = { id: "sys", name: "StockNow AI", email: "", dept: "", role: null, leaveUntil: null, seq: 0 };
+export const SYS_USER = { id: "sys", name: "StockNow", email: "", dept: "", role: null, leaveUntil: null, seq: 0 };
 /* Paid customer orders arriving from Orbyte Payment are recorded under this name. */
 export const ORBYTE_USER = { id: "orbyte", name: "Orbyte Payment", email: "", dept: "", role: "SYSTEM", leaveUntil: null, seq: 0 };
 export const userOf = (d, id) =>
@@ -63,6 +63,17 @@ export function budgetParts(d) {
   const manual = month.filter(isManualBuy).reduce((s, t) => s + costOf(d, t), 0);
   const refunds = month.filter(isSupplierReturn).reduce((s, t) => s + costOf(d, t), 0);
   return { orders, manual, refunds };
+}
+/* This month's purchases per supplier (supplier orders + manual purchases), for the Finance chart.
+   Stock returned to a supplier is not a purchase, so it is given separately as `returned`:
+   purchases − returned = spentThisMonth. */
+export function spendBySupplier(d) {
+  const mk = monthKey(), by = {};
+  const add = (sup, v) => { by[sup || ""] = (by[sup || ""] || 0) + v; };
+  d.pos.filter((po) => po.at.startsWith(mk)).forEach((po) => add(po.sup, poTotal(po)));
+  liveTx(d).filter((t) => t.at.startsWith(mk) && isManualBuy(t)).forEach((t) => add(t.sup || productOf(d, t.pid)?.sup, costOf(d, t)));
+  const slices = Object.entries(by).map(([sup, value]) => ({ sup, value })).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
+  return { slices, returned: budgetParts(d).refunds };
 }
 export const spentThisMonth = (d) => {
   const b = budgetParts(d);
@@ -291,10 +302,10 @@ export const overridesOf = (r) => Object.fromEntries(r.items.filter((i) => i.dec
 /* Plain-text summary with **bold** markers. This is also the fallback when Gemini is unavailable. */
 export function shortSummary(r) {
   const t = r.t;
-  if (!t.buy.length) return `AI recommends **not buying anything right now**. ${t.skip.length ? `${list(t.skip.map((i) => i.short))} have enough stock or weak demand.` : ""} Keep the cash.`;
+  if (!t.buy.length) return `StockNow recommends **not buying anything right now**. ${t.skip.length ? `${list(t.skip.map((i) => i.short))} have enough stock or weak demand.` : ""} Keep the cash.`;
   const urgent = t.buy.filter((i) => i.g.cover < 7).map((i) => i.short);
   const parts = r.ideal
-    ? [`To cover everything AI recommends, buy **${plural(t.buy.length, "product")} for ${rm(t.cost)}**. Expected profit **${rm(t.profit)}** (ROI **${pct(t.roi)}**).`]
+    ? [`To cover everything recommended, buy **${plural(t.buy.length, "product")} for ${rm(t.cost)}**. Expected profit **${rm(t.profit)}** (ROI **${pct(t.roi)}**).`]
     : [`With ${rm(r.budget)}, buy **${plural(t.buy.length, "product")} for ${rm(t.cost)}**. Expected profit **${rm(t.profit)}** (ROI **${pct(t.roi)}**).`];
   if (urgent.length) parts.push(`${list(urgent)} run${urgent.length > 1 ? "" : "s"} out within a week.`);
   if (t.skip.length) parts.push(`Skip ${list(t.skip.map((i) => i.short))}.`);
@@ -305,7 +316,7 @@ export function shortSummary(r) {
 /* Plain-language findings for the AI page, one icon per line. */
 export function summaryBullets(d, r) {
   const t = r.t, b = [], left = budgetLeft(d);
-  if (r.ideal) b.push({ ic: "coins", tone: "ai", h: `Buying everything AI recommends costs **${rm(t.cost)}**. Budget left this month is ${rm(left)}${t.cost > left ? `, so you're **${rm(t.cost - left)} short**` : ", so it fits"}.` });
+  if (r.ideal) b.push({ ic: "coins", tone: "ai", h: `Buying everything recommended costs **${rm(t.cost)}**. Budget left this month is ${rm(left)}${t.cost > left ? `, so you're **${rm(t.cost - left)} short**` : ", so it fits"}.` });
   else b.push({ ic: "wallet", tone: "ai", h: `Spend **${rm(t.cost)}** of ${rm(r.budget)} (${pct(r.budget ? t.cost / r.budget : 0)}) on ${plural(t.buy.length, "product")}.` });
   if (t.buy.length) b.push({ ic: "up", tone: "green", h: `Expected profit **${rm(t.profit)}**: about **${rm2(1 + t.roi)}** comes back for every RM 1 spent.` });
   const urgent = t.buy.filter((i) => i.g.cover < 7).map((i) => i.short);

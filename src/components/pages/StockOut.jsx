@@ -28,7 +28,7 @@ export default function StockOut() {
 
   return (
     <>
-      <div className="page-head"><div><h1 className="page-title">{t("Stock Out")}</h1><p className="page-sub">{t("Record sales and damaged items returned to supplier. Stock can never go below zero.")}</p></div></div>
+      <div className="page-head"><div><h1 className="page-title">{t("Stock Out")}</h1><p className="page-sub">{t("Record items sold or sent back to a supplier.")}</p></div></div>
       <div className="section" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))", gap: 24, alignItems: "start" }}>
         <div className="card card-pad">
           <div className="grid2">
@@ -82,7 +82,7 @@ function OrbytePayment() {
         <div className="row" style={{ gap: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="receipt" /></span><h2 className="card-title">{t("Automatic from Orbyte Payment")}</h2></div>
         <span className="chip chip-grey">{t("Simulated in demo")}</span>
       </div>
-      <p className="muted small" style={{ marginBottom: 14 }}>{t("When a customer pays through Orbyte Payment, StockNow records the stock out by itself. Items it can't match go to the Owner or a Manager to check, never a guess.")}</p>
+      <p className="muted small" style={{ marginBottom: 14 }}>{t("Paid Orbyte orders come off the stock by themselves. Anything unclear goes to a manager to check.")}</p>
       <div className="grid2">
         <div className="field span2">
           <label className="label" htmlFor="op-p">{t("Customer bought")}</label>

@@ -4,21 +4,23 @@ import { useApp } from "../App.jsx";
 import { DotIc, Icon, RoleChip, Select, Spark } from "../ui.jsx";
 import { budgetLeft, budgetParts, forecastFrom } from "@/lib/engine.js";
 import { PRODUCTS, SCENARIOS } from "@/lib/seed.js";
-import { ROLE_LABEL } from "@/lib/actions.js";
+import { deptOf, roleChoiceOf } from "@/lib/actions.js";
+import { roleOptions } from "../Modals.jsx";
 import { LANGS } from "@/lib/i18n.js";
-import { BUSINESS_TYPES, historyMode } from "@/lib/forecast.js";
 import { initials, nowStamp, rm, toJSON } from "@/lib/format.js";
 
 export default function Settings() {
-  const { ui, setUi, can, t } = useApp();
-  const owner = can("manageAccess");
-  const tabs = [["language", "Language"], ["business", "Business"], ...(owner ? [["budget", "Budget"]] : []), ["categories", "Categories"], ["ai", "AI (Gemini)"], ["demo", "Demo data"], ["backup", "Backup"], ...(owner ? [["account", "Account"]] : [])];
+  const { me, ui, setUi, can, t } = useApp();
+  const owner = can("manageAccess"), finance = deptOf(me) === "FINANCE", stock = can("stock");
+  /* Each tab only for the people who need it: Finance sees the budget, Inventory sees categories and backup. */
+  const tabs = [["language", "Language"], ...(owner || finance ? [["budget", "Budget"]] : []), ...(stock ? [["categories", "Categories"]] : []),
+    ...(can("forecastSettings") ? [["ai", "Smart features"]] : []), ["demo", "Demo data"], ...(stock ? [["backup", "Backup"]] : []), ...(owner ? [["account", "Account"]] : [])];
   const tab = tabs.some(([k]) => k === ui.settingsTab) ? ui.settingsTab : "language";
-  const View = { categories: Categories, budget: Budget, language: Language, business: BusinessProfile, ai: AiStatus, demo: DemoData, backup: Backup, account: Access }[tab];
+  const View = { categories: Categories, budget: Budget, language: Language, ai: AiStatus, demo: DemoData, backup: Backup, account: Access }[tab];
   return (
     <>
       <div className="page-head">
-        <div><h1 className="page-title">{t("Settings")}</h1><p className="page-sub">{t(owner ? "Language, business, budget, categories, AI, demo data, backup and who can open StockNow." : "Language, business, categories, AI, demo data and backup.")}</p></div>
+        <div><h1 className="page-title">{t("Settings")}</h1><p className="page-sub">{t("Language and other settings.")}</p></div>
         <div className="tabs">{tabs.map(([k, l]) => <button key={k} className={`tab ${tab === k ? "on" : ""}`} onClick={() => setUi({ settingsTab: k })}>{t(l)}</button>)}</div>
       </div>
       <View />
@@ -51,7 +53,7 @@ function Categories() {
 }
 
 function Budget() {
-  const { d, openModal, t } = useApp();
+  const { d, can, openModal, t } = useApp();
   const mb = d.settings.monthlyBudget, b = budgetParts(d), left = budgetLeft(d);
   const row = (label, v, hint, sign) => (
     <div className="row" style={{ justifyContent: "space-between", padding: "12px 0", borderTop: "1px solid var(--divider)", gap: 12 }}>
@@ -62,13 +64,13 @@ function Budget() {
     <div className="card card-pad" style={{ maxWidth: 760 }}>
       <div className="row wrap" style={{ justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
         <div className="stack"><span className="muted small">{t("Monthly purchase budget")}</span><span className="stat-value" style={{ marginTop: 2, color: "var(--ai)" }}>{rm(mb)}</span></div>
-        <button className="btn btn-primary" onClick={() => openModal("budget")}><Icon n="wallet" size={16} /> {t("Set monthly budget")}</button>
+        {can("setBudget") ? <button className="btn btn-primary" onClick={() => openModal("budget")}><Icon n="wallet" size={16} /> {t("Set monthly budget")}</button> : <span className="chip chip-grey">{t("View only")}</span>}
       </div>
-      {row(t("Supplier orders"), b.orders, t("Orders created from approved AI plans this month"), "− ")}
-      {row(t("Manual stock in"), b.manual, t("Stock bought outside an AI plan (quantity × cost price)"), "− ")}
+      {row(t("Supplier orders"), b.orders, t("Orders from approved restock plans this month"), "− ")}
+      {row(t("Manual stock in"), b.manual, t("Stock bought outside a restock plan (quantity × cost price)"), "− ")}
       {row(t("Returned to supplier"), b.refunds, t("Refund for damaged stock sent back to a supplier"), "+ ")}
       <div className="row" style={{ justifyContent: "space-between", padding: "14px 0 0", borderTop: "1px solid var(--border)" }}><span className="bold">{t("Left this month")}</span><span className="bold num" style={{ fontSize: 18, color: left > 0 ? "var(--green-fg)" : "var(--red-fg)" }}>{rm(left)}</span></div>
-      <div className="hint" style={{ marginTop: 12 }}>{t("Sales and customer returns don't change the budget: sales are revenue, shown on the dashboard. AI drafts a plan from what's left on day {day} of each month.", { day: d.settings.planDay })}</div>
+      <div className="hint" style={{ marginTop: 12 }}>{t("Sales and customer returns don't change the budget: sales are revenue, shown on the dashboard. StockNow reminds you to plan a restock on day {day} of each month.", { day: d.settings.planDay })}</div>
     </div>
   );
 }
@@ -89,7 +91,7 @@ function Language() {
           </button>
         ))}
       </div>
-      <div className="notice blue" style={{ marginTop: 16 }}><Icon n="info" size={16} /><span>{t("Product names, AI explanations, supplier messages and the activity log stay as they were written, so the record reads the same for everyone.")}</span></div>
+      <div className="notice blue" style={{ marginTop: 16 }}><Icon n="info" size={16} /><span>{t("Product names, written explanations, supplier messages and the activity log stay as they were written, so the record reads the same for everyone.")}</span></div>
     </div>
   );
 }
@@ -107,58 +109,20 @@ function AiStatus() {
   return (
     <div className="card card-pad" style={{ maxWidth: 760 }}>
       <div className="row wrap" style={{ justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-        <div className="row" style={{ gap: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="bot" /></span><h2 className="card-title">Gemini</h2></div>
+        <div className="row" style={{ gap: 8 }}><span style={{ color: "var(--ai)", display: "flex" }}><Icon n="spark" /></span><h2 className="card-title">{t("Smart features")} · Google Gemini</h2></div>
         <span className={`chip ${meta.gemini ? "chip-green" : "chip-amber"}`}>{t(meta.gemini ? "API key set on the server" : "No API key on the server")}</span>
       </div>
-      <p className="muted small" style={{ marginBottom: 12 }}>{t("Gemini writes the restock summary and the supplier WhatsApp messages from StockNow's numbers. StockNow calculates every number itself, and checks that Gemini's text uses only those numbers.")}</p>
+      <p className="muted small" style={{ marginBottom: 12 }}>{t("StockNow uses Google Gemini to write the plan summary and supplier messages, and to suggest forecast settings. StockNow calculates every number itself and checks that the wording uses only those numbers.")}</p>
       {row(t("Model"), <span className="mono">{meta.geminiModel || "—"}</span>)}
       {row(t("If that model is busy"), <span className="mono">gemini-3.5-flash → gemini-3.5-flash-lite</span>)}
-      {row(t("If Gemini can't be used"), t("A built-in template writes the text, and the label says why"))}
+      {row(t("If it can't be reached"), t("A built-in template writes the text, and the label says why"))}
       <div className="row wrap" style={{ gap: 12, marginTop: 14 }}>
-        <button className="btn btn-ai" disabled={st?.loading} onClick={test}><Icon n="spark" size={16} /> {t(st?.loading ? "Testing…" : "Test Gemini")}</button>
+        <button className="btn btn-ai" disabled={st?.loading} onClick={test}><Icon n="spark" size={16} /> {t(st?.loading ? "Testing…" : "Test connection")}</button>
       </div>
       {st && !st.loading ? (st.ok
-        ? <div className="notice green" style={{ marginTop: 14 }}><Icon n="check" size={16} /><span>{t("Gemini answered in {ms} ms using {model}. AI text in StockNow is written by Gemini.", { ms: st.ms, model: st.model })}{st.chosen && st.chosen !== st.model ? ` ${t("{chosen} was busy, so the backup model answered.", { chosen: st.chosen })}` : ""}</span></div>
-        : <div className="notice red" style={{ marginTop: 14 }}><Icon n="warning" size={16} /><span><b>{t("Gemini did not answer.")}</b> {st.error}</span></div>) : null}
-      <div className="notice blue" style={{ marginTop: 14 }}><Icon n="info" size={16} /><span>{t("To turn Gemini on, add GEMINI_API_KEY (from aistudio.google.com/apikey) to Replit Secrets or .env.local, and optionally GEMINI_MODEL. Then restart or redeploy, and press Test Gemini.")}</span></div>
-    </div>
-  );
-}
-
-/* What kind of business this is. It sets the starting forecast settings for shops with little sales history. */
-function BusinessProfile() {
-  const { d, can, act, go, setAi, t } = useApp();
-  const edit = can("forecastSettings");
-  const [f, setF] = useState({ businessType: d.settings.businessType || "clothing", businessYears: d.settings.businessYears ?? "" });
-  const [err, setErr] = useState({});
-  const months = d.settings.salesMonths.length, mode = historyMode(months);
-  async function save() {
-    const out = await act("setBusinessProfile", f);
-    if (!out.ok && out.fields) setErr(out.fields);
-  }
-  return (
-    <div className="card card-pad" style={{ maxWidth: 760 }}>
-      <div className="row" style={{ gap: 8, marginBottom: 6 }}><span style={{ color: "var(--primary)", display: "flex" }}><Icon n="store" /></span><h2 className="card-title">{t("Business profile")}</h2></div>
-      <p className="muted small" style={{ marginBottom: 16 }}>{t("Different businesses restock differently: food goes off quickly, electronics sell slowly. The business type sets the starting forecast settings until there is enough sales history.")}</p>
-      <div className="grid2">
-        <div className="field">
-          <label className="label" htmlFor="bp-type">{t("Business type")}</label>
-          <Select id="bp-type" value={f.businessType} disabled={!edit} error={!!err.businessType} onChange={(v) => setF((x) => ({ ...x, businessType: v }))} options={Object.entries(BUSINESS_TYPES).map(([k, x]) => [k, t(x.label)])} />
-        </div>
-        <div className="field">
-          <label className="label" htmlFor="bp-years">{t("Years in business")}</label>
-          <input className={`input ${err.businessYears ? "error" : ""}`} id="bp-years" inputMode="numeric" disabled={!edit} value={f.businessYears} onChange={(e) => setF((x) => ({ ...x, businessYears: e.target.value.replace(/[^0-9]/g, "") }))} />
-          {err.businessYears ? <div className="hint err">{err.businessYears}</div> : null}
-        </div>
-        <div className="field span2">
-          <span className="label">{t("Sales history in StockNow")}</span>
-          <div className={`notice ${mode.key === "enough" ? "ai" : "amber"}`}><Icon n="activity" size={16} /><span><b>{t("{n} months", { n: months })} · {t(mode.label)}.</b> {t(mode.text)}</span></div>
-        </div>
-      </div>
-      <div className="row wrap" style={{ justifyContent: "space-between", gap: 10, marginTop: 18 }}>
-        <button className="btn btn-link" onClick={() => { setAi({ tab: "settings" }); go("ai"); }}>{t("Open forecast settings")} →</button>
-        {edit ? <button className="btn btn-primary" onClick={save}><Icon n="check" size={16} sw={2.2} /> {t("Save business profile")}</button> : <span className="chip chip-grey">{t("View only")}</span>}
-      </div>
+        ? <div className="notice green" style={{ marginTop: 14 }}><Icon n="check" size={16} /><span>{t("Connected: answered in {ms} ms using {model}.", { ms: st.ms, model: st.model })}{st.chosen && st.chosen !== st.model ? ` ${t("{chosen} was busy, so the backup model answered.", { chosen: st.chosen })}` : ""}</span></div>
+        : <div className="notice red" style={{ marginTop: 14 }}><Icon n="warning" size={16} /><span><b>{t("No answer.")}</b> {st.error}</span></div>) : null}
+      <div className="notice blue" style={{ marginTop: 14 }}><Icon n="info" size={16} /><span>{t("To turn this on, add GEMINI_API_KEY (from aistudio.google.com/apikey) to Replit Secrets or .env.local, and optionally GEMINI_MODEL. Then restart or redeploy, and press Test connection.")}</span></div>
     </div>
   );
 }
@@ -168,7 +132,7 @@ function DemoData() {
   const cur = d.settings.scenario;
   return (
     <div className="stack" style={{ gap: 16, maxWidth: 1000 }}>
-      <div className="notice blue"><Icon n="info" size={16} /><span>{t("Each scenario is the same shop with a different 6-month sales story (synthetic data). Pick one, then open AI Restock to see how the AI reacts. Switching resets the shop for everyone using this demo, with dates moved to today.")}</span></div>
+      <div className="notice blue"><Icon n="info" size={16} /><span>{t("Each scenario is the same shop with a different 6-month sales story (synthetic data). Pick one, then open Smart Restock to see how the plan changes. Switching resets the shop for everyone using this demo, with dates moved to today.")}</span></div>
       {Object.entries(SCENARIOS).map(([k, sc]) => (
         <div key={k} className="card card-pad" style={k === cur ? { borderColor: "var(--ai)", boxShadow: "0 0 0 2px var(--ai-br)" } : undefined}>
           <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -178,7 +142,7 @@ function DemoData() {
           <div className="row wrap" style={{ gap: "12px 18px", marginTop: 12 }}>
             {PRODUCTS.map((p) => <div key={p.id} className="stack" style={{ gap: 0 }}><span className="faint" style={{ fontSize: 11 }}>{p.short}</span><Spark s={sc.sales[p.id]} pred={forecastFrom(sc.sales[p.id]).forecast} w={86} h={26} /></div>)}
           </div>
-          <div className="notice ai" style={{ marginTop: 12 }}><Icon n="spark" size={14} /><span><b>{t("What AI should do:")}</b> {t(sc.expect)}</span></div>
+          <div className="notice ai" style={{ marginTop: 12 }}><Icon n="spark" size={14} /><span><b>{t("What the plan should do:")}</b> {t(sc.expect)}</span></div>
         </div>
       ))}
     </div>
@@ -195,7 +159,7 @@ function Backup() {
     ["database", "blue", "1. Data is backed up", meta.mode === "supabase" ? "Stored in Supabase Postgres, which takes automatic daily backups." : "Demo mode: data is kept in server memory. Connect Supabase for permanent storage and daily backups."],
     ["offline", "amber", "2. Keep working offline", "Stock in and stock out keep working on the device and sync when the connection is back."],
     ["message", "green", "3. Paper or WhatsApp fallback", "No device at hand? Write sales on the note template, then type them in with Catch-up entry below."],
-    ["spark", "ai", "4. AI never blocks the shop", "The restock numbers are calculated by StockNow itself. If Gemini is down, a template writes the text instead."],
+    ["spark", "ai", "4. Restock plans always work", "StockNow calculates the restock numbers itself. If the writing help is down, standard wording is used instead."],
   ];
   const showBox = (text, msg) => { setUi({ backupText: text }); toast(msg); };
   const copyBackup = () => {
@@ -277,7 +241,7 @@ function Access() {
             <td><span className="row" style={{ gap: 10 }}><span className="avatar" style={{ width: 30, height: 30, fontSize: 11 }}>{initials(u.name)}</span><span className="stack"><span className="bold">{u.name}</span><span className="faint small">{u.email}</span></span></span></td>
             <td className="muted">{u.dept}</td>
             <td>{u.role === "OWNER" ? <RoleChip role="OWNER" /> : u.role
-              ? <div style={{ width: 150 }}><Select id={`role-${u.id}`} cls="sm" label={t("Role of {name}", { name: u.name })} value={u.role} onChange={(v) => act("changeRole", { id: u.id, role: v })} options={[["MANAGER", t(ROLE_LABEL.MANAGER)], ["STAFF", t(ROLE_LABEL.STAFF)]]} /></div>
+              ? <div style={{ width: 170 }}><Select id={`role-${u.id}`} cls="sm" label={t("Role of {name}", { name: u.name })} value={roleChoiceOf(u)} onChange={(v) => act("changeRole", { id: u.id, role: v })} options={roleOptions(t)} /></div>
               : <span className="chip chip-grey">{t("No access")}</span>}</td>
             <td className="right">{u.role === "OWNER" ? <span className="faint small">{t("Owner")}</span> : u.role
               ? <button className="btn btn-secondary btn-sm" onClick={() => remove(u)}>{t("Remove access")}</button>

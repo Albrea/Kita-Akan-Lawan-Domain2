@@ -18,7 +18,7 @@ export default function Approvals() {
         </div>
       </div>
       {tab === "pending"
-        ? pend.length ? pend.map((r) => <ApprovalCard key={r.id} r={r} />) : <div className="card"><Empty title={t("Nothing to approve")} text={t("When staff send an AI plan it appears here.")} ic="check" /></div>
+        ? pend.length ? pend.map((r) => <ApprovalCard key={r.id} r={r} />) : <div className="card"><Empty title={t("Nothing to approve")} text={t("Plans sent for approval appear here.")} ic="check" /></div>
         : (
           <div className="card">{hist.length ? (
             <div className="scroll-x"><table style={{ minWidth: 820 }}>
@@ -67,8 +67,8 @@ function ApprovalCard({ r }) {
         </div>
       </div>
       <div className="card-pad" style={{ paddingBottom: 8 }}>
-        {r.summary ? <div className="summary-box" style={{ marginTop: 0, marginBottom: 14 }}><span className="eyebrow" style={{ color: "var(--ai-fg)" }}>{t("AI summary")}</span><p className="ai-text" style={{ marginTop: 4 }}><Md text={r.summary} /></p></div> : null}
-        {r.result ? <Bullets items={summaryBullets(d, r.result)} /> : null}
+        {r.summary ? <div className="summary-box" style={{ marginTop: 0, marginBottom: 14 }}><span className="eyebrow" style={{ color: "var(--ai-fg)" }}>{t("Summary")}</span><p className="ai-text" style={{ marginTop: 4 }}><Md text={r.summary} /></p></div> : null}
+        {r.result ? <details className="more" style={{ marginBottom: 6 }}><summary><Icon n="info" size={14} /> {t("More detail")}</summary><Bullets items={summaryBullets(d, r.result)} style={{ marginTop: 12 }} /></details> : null}
         {r.note ? <div className="notice blue" style={{ marginTop: 12 }}><Icon n="message" size={16} /> <span><b>{userOf(d, r.by).name}:</b> {r.note}</span></div> : null}
       </div>
       <div className="scroll-x"><table style={{ minWidth: 760 }}>

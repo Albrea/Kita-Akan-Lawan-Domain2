@@ -3,7 +3,7 @@ import "./globals.css";
 export const metadata = {
   title: "StockNow",
   description:
-    "Inventory with AI restock planning for small clothing shops. AI suggests, people decide.",
+    "Stock and smart restock planning for small shops. StockNow suggests, people decide.",
 };
 
 export const viewport = {
@@ -27,7 +27,7 @@ export default function RootLayout({ children }) {
         />
         {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Sans+Tamil:wght@400;500;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Sans+Tamil:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap"
           rel="stylesheet"
         />
       </head>

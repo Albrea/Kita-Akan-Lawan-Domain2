@@ -108,7 +108,7 @@ export default function StockIn() {
   return (
     <>
       <div className="page-head">
-        <div><h1 className="page-title">{t("Stock In")}</h1><p className="page-sub">{t("Receive supplier orders, or record other incoming stock.")}</p></div>
+        <div><h1 className="page-title">{t("Stock In")}</h1><p className="page-sub">{t("Receive deliveries or add stock.")}</p></div>
         <div className="tabs">
           <button className={`tab ${tab === "orders" ? "on" : ""}`} onClick={() => setUi({ stockInTab: "orders" })}>{t("Supplier orders")}<span className="n">{open.length}</span></button>
           <button className={`tab ${tab === "manual" ? "on" : ""}`} onClick={() => { setUi({ stockInTab: "manual" }); setErr({}); }}>{t("Manual stock in")}</button>
@@ -163,7 +163,7 @@ export default function StockIn() {
             </div>
           </div>
         );
-      }) : <div className="card section"><Empty title={t("No deliveries expected")} text={t("Approved AI plans become supplier orders here.")} ic="truck" /></div>) : (
+      }) : <div className="card section"><Empty title={t("No deliveries expected")} text={t("Approved restock plans become supplier orders here.")} ic="truck" /></div>) : (
         <div className="card card-pad section" style={{ maxWidth: 760 }}>
           <div className="grid2">
             <div className="field span2">

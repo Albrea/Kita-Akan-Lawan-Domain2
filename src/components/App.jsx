@@ -2,7 +2,7 @@
 /* StockNow app shell: loads the shop from the API, keeps the screen state, and sends every change
    to /api/action. In a simulated outage, stock moves run locally (same code) and sync later. */
 import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { ActionError, OFFLINE_ACTIONS, ROLE_LABEL, applyAction, can as canRole } from "@/lib/actions.js";
+import { ActionError, OFFLINE_ACTIONS, ROLE_LABEL, applyAction, canUser, deptOf, roleLabel } from "@/lib/actions.js";
 import { budgetLeft, members, openPOs, pendingRequests, userOf } from "@/lib/engine.js";
 import { clone, fromJSON, initials, nowStamp, toJSON } from "@/lib/format.js";
 import { DEFAULT_LANG, HTML_LANG, LANGS, dateText, translate } from "@/lib/i18n.js";
@@ -27,6 +27,10 @@ const PAGES = {
   ai: AiRestock, approvals: Approvals, activity: ActivityLog, team: Team, settings: Settings,
 };
 
+/* Finance staff only see the pages about money and follow-up; everyone else sees every page. */
+const FINANCE_PAGES = new Set(["dashboard", "approvals", "suppliers", "activity", "team", "settings"]);
+export const pageAllowed = (u, page) => deptOf(u) !== "FINANCE" || FINANCE_PAGES.has(page);
+
 export const OFFLINE_MSG = "You're offline. This needs a connection, so it stays here until StockNow is back.";
 const ME_KEY = "stocknow.me", LANG_KEY = "stocknow.lang", PO_KEY = "stocknow.lastPo";
 const load = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -42,7 +46,7 @@ const initialUi = () => ({
   focusPo: null, // a PO someone just opened from elsewhere: Stock In scrolls to it
   lastPo: null, // the PO being received, highlighted until it is saved
   products: { q: "", cat: "", sort: "name" },
-  activity: { q: "", action: "", user: "", from: "", to: "" },
+  activity: { q: "", action: "", source: "", user: "", from: "", to: "" },
   settingsTab: "language", // first, so someone who can't read English finds it straight away
   catchup: "",
   catchupResult: null,
@@ -130,7 +134,7 @@ export default function App() {
   }, [d, offline, modal, busy, refresh]);
 
   const me = useMemo(() => (d ? userOf(d, meId) : null), [d, meId]);
-  const can = useCallback((perm) => !!me && canRole(me.role, perm), [me]);
+  const can = useCallback((perm) => !!me && canUser(me, perm), [me]);
 
   const go = useCallback((page, extra) => {
     setUi({ page, ...(extra || {}) });
@@ -189,7 +193,7 @@ export default function App() {
     setUi((x) => ({ page: "dashboard", ai: x.ai.phase === "done" || x.ai.phase === "writing" ? x.ai : { ...x.ai, budget: String(budgetLeft(d)) } }));
     setProfileOpen(false);
     setNavOpen(false);
-    toast(t("Now using {name} ({role})", { name: u.name, role: t(ROLE_LABEL[u.role]) }));
+    toast(t("Now using {name} ({role})", { name: u.name, role: t(roleLabel(u)) }));
   }, [d, setUi, toast, t]);
 
   const switchScenario = useCallback(async (key) => {
@@ -228,12 +232,12 @@ export default function App() {
   if (!d || !me) return <div className="boot"><span className="spin" /><span>{t("Loading StockNow…")}</span></div>;
 
   /* A person's name with their role, e.g. "David Lee (Staff)". */
-  const who = (id) => { const u = userOf(d, id); return u.role && ROLE_LABEL[u.role] ? `${u.name} (${t(ROLE_LABEL[u.role])})` : u.name; };
+  const who = (id) => { const u = userOf(d, id); return u.role && ROLE_LABEL[u.role] ? `${u.name} (${t(roleLabel(u))})` : u.name; };
   const value = {
     d, setData, me, meta, ui, setUi, setAi, can, go, act, toast, openModal, closeModal, modal, openPlan, signInAs, switchScenario,
     offline, queue, toggleOffline, refresh, busy: busy > 0, lang, setLang, t, tp, when, day, days, who,
   };
-  const Page = PAGES[ui.page] || Dashboard;
+  const Page = (pageAllowed(me, ui.page) && PAGES[ui.page]) || Dashboard;
   return (
     <Ctx.Provider value={value}>
       {busy > 0 ? <div className="busy-bar" aria-hidden="true" /> : null}
@@ -246,12 +250,12 @@ export default function App() {
             <span className="logo" style={{ width: 28, height: 28 }}><Icon n="spark" size={16} sw={2} /></span>
             <span className="brand-name" style={{ fontSize: 15 }}>StockNow</span>
             <span className="spacer" />
-            <RoleChip role={me.role} />
+            <RoleChip user={me} />
           </div>
           {offline ? (
             <div className="notice amber section">
               <Icon n="offline" size={16} />
-              <span><b>{t("Offline (simulated).")}</b> {t("Stock in and out are saved on this device and sync when StockNow is back.")}{queue.length ? ` ${tp(queue.length, "{n} change waiting.", "{n} changes waiting.")}` : ""} {t("AI plans still work.")}{" "}
+              <span><b>{t("Offline (simulated).")}</b> {t("Stock in and out are saved on this device and sync when StockNow is back.")}{queue.length ? ` ${tp(queue.length, "{n} change waiting.", "{n} changes waiting.")}` : ""} {t("Restock plans still work.")}{" "}
                 <button className="btn btn-link btn-sm" style={{ marginLeft: 6 }} onClick={toggleOffline}>{t("Back online")}</button></span>
             </div>
           ) : null}
@@ -279,13 +283,13 @@ function Sidebar({ open, profileOpen, setProfileOpen }) {
     { id: "stock-out", label: "Stock Out", icon: "out" },
     { id: "suppliers", label: "Suppliers", icon: "store" },
     { sep: 1 },
-    { id: "ai", label: "AI Restock", icon: "spark", ai: true, badge: "AI", tone: "ai" },
+    { id: "ai", label: "Smart Restock", icon: "spark", ai: true },
     { id: "approvals", label: "Approvals", icon: "approve", badge: pend || "" },
     { id: "activity", label: "Activity Log", icon: "activity" },
     { sep: 2 },
     { id: "team", label: "Team & access", icon: "users" },
     { id: "settings", label: "Settings", icon: "settings" },
-  ];
+  ].filter((m, i, all) => m.sep ? all[i - 1] && !all[i - 1].sep : pageAllowed(me, m.id));
   return (
     <nav className={`sidebar ${open ? "open" : ""}`} aria-label={t("Main")}>
       <div className="brand"><span className="logo"><Icon n="spark" size={18} sw={2} /></span><span className="brand-name">StockNow</span></div>
@@ -309,7 +313,7 @@ function Sidebar({ open, profileOpen, setProfileOpen }) {
               <div className="eyebrow" style={{ padding: "4px 12px" }}>{t("Switch demo account")}</div>
               {members(d).map((u) => (
                 <button key={u.id} className={`menu-item ${u.id === me.id ? "on" : ""}`} onClick={() => signInAs(u.id)}>
-                  <Icon n="swap" size={16} /> {u.name} · {t(ROLE_LABEL[u.role])}
+                  <Icon n="swap" size={16} /> {u.name} · {t(roleLabel(u))}
                 </button>
               ))}
             </div>
@@ -319,7 +323,7 @@ function Sidebar({ open, profileOpen, setProfileOpen }) {
           <span className="avatar">{initials(me.name)}</span>
           <span className="stack" style={{ flex: 1 }}>
             <span style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{me.name}</span>
-            <span style={{ fontSize: 12, color: "var(--text-2)" }}>{t(ROLE_LABEL[me.role])}</span>
+            <span style={{ fontSize: 12, color: "var(--text-2)" }}>{t(roleLabel(me))}</span>
           </span>
           <Icon n="chevronUp" size={16} />
         </button>

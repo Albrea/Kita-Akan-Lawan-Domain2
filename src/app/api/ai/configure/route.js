@@ -19,7 +19,7 @@ export async function POST() {
   });
   if (!out.ok) return json({ ok: false, error: out.error, model: out.model });
   const v = validateConfig(out.values);
-  if (!v.ok) return json({ ok: false, model: out.model, error: `Gemini's proposal was rejected by the safety check: ${v.errors.join(" ")} Your current settings stay.` });
+  if (!v.ok) return json({ ok: false, model: out.model, error: `The suggestion was rejected by the safety check: ${v.errors.join(" ")} Your current settings stay.` });
   const proposed = { ...current, ...v.values };
   return json({
     ok: true, model: out.model, explanation: out.explanation, values: v.values, current, proposed,
