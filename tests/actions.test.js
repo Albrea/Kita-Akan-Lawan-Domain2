@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildData } from "../src/lib/seed.js";
-import { applyAction, ActionError } from "../src/lib/actions.js";
-import { budgetLeft, productOf, todayTx, isSale } from "../src/lib/engine.js";
+import { applyAction, applyPaymentEvent, ActionError } from "../src/lib/actions.js";
+import { budgetLeft, isSale, lateDays, liveTx, poOf, productOf, todayTx } from "../src/lib/engine.js";
+import { nowStamp } from "../src/lib/format.js";
 
 const fresh = () => buildData("mixed");
 
@@ -75,5 +76,101 @@ describe("permissions and validation", () => {
     expect(() => applyAction(d, "u1", "setMonthlyBudget", { budget: 30000 }, { offline: true })).toThrow(/offline/);
     applyAction(d, "u3", "stockOut", { pid: "p4", qty: 1, reason: "Sold in store" }, { offline: true });
     expect(d.tx[0].pending).toBe(true);
+  });
+});
+
+describe("undo", () => {
+  it("undoing a stock out puts the stock back and removes the sale; the history keeps both", () => {
+    const d = fresh();
+    applyAction(d, "u3", "stockOut", { pid: "p4", qty: 5, reason: "Sold in store" });
+    const sale = d.tx[0];
+    applyAction(d, "u3", "undoTx", { txId: sale.id });
+    expect(productOf(d, "p4").stock).toBe(120);
+    expect(todayTx(d).some((t) => t.id === sale.id)).toBe(false);
+    expect(d.tx.some((t) => t.id === sale.id)).toBe(true);
+    expect(d.logs[0].action).toBe("UNDO");
+    expect(() => applyAction(d, "u3", "undoTx", { txId: sale.id })).toThrow("already undone");
+  });
+
+  it("undoing a manual stock in gives the budget back", () => {
+    const d = fresh(), start = budgetLeft(d);
+    applyAction(d, "u3", "stockIn", { pid: "p1", qty: 10, kind: "buy", sup: "s1" });
+    applyAction(d, "u3", "undoTx", { txId: d.tx[0].id });
+    expect(budgetLeft(d)).toBe(start);
+  });
+
+  it("staff can undo only their own entries; the owner can undo anyone's", () => {
+    const d = fresh();
+    applyAction(d, "u4", "stockOut", { pid: "p4", qty: 2, reason: "Online order" });
+    const id = d.tx[0].id;
+    expect(() => applyAction(d, "u3", "undoTx", { txId: id })).toThrow(/own entries/);
+    applyAction(d, "u1", "undoTx", { txId: id });
+    expect(productOf(d, "p4").stock).toBe(120);
+  });
+
+  it("refuses to undo a stock in whose goods were already sold", () => {
+    const d = fresh();
+    applyAction(d, "u3", "stockIn", { pid: "p3", qty: 5, kind: "buy", sup: "s3" });
+    const id = d.tx[0].id;
+    applyAction(d, "u3", "stockOut", { pid: "p3", qty: 3, reason: "Sold in store" });
+    expect(() => applyAction(d, "u3", "undoTx", { txId: id })).toThrow(/already sold/);
+  });
+
+  it("undoing a supplier delivery puts the quantity back on the order", () => {
+    const d = fresh();
+    applyAction(d, "u3", "receivePO", { poId: "po1", lines: { p5: 25 } });
+    expect(poOf(d, "po1").status).toBe("RECEIVED");
+    applyAction(d, "u1", "undoTx", { txId: d.tx[0].id });
+    expect(poOf(d, "po1").status).toBe("PARTIAL");
+    expect(poOf(d, "po1").items[0].received).toBe(15);
+  });
+});
+
+describe("Orbyte Payment", () => {
+  const pay = (id, items, event = "payment.succeeded") => ({ event, paymentId: id, channel: "in_store", items });
+
+  it("a paid order becomes a stock out and a sale, recorded once", () => {
+    const d = fresh();
+    applyPaymentEvent(d, pay("PAY-1001", [{ sku: "TEE-CMB", qty: 3 }, { sku: "acc-tot", qty: 2 }]));
+    expect(productOf(d, "p4").stock).toBe(117);
+    expect(productOf(d, "p7").stock).toBe(498);
+    expect(todayTx(d).filter(isSale).filter((t) => t.by === "orbyte").length).toBe(2);
+    expect(d.logs.some((l) => l.action === "ORBYTE_SALE" && l.text.includes("PAY-1001"))).toBe(true);
+    expect(applyPaymentEvent(d, pay("PAY-1001", [{ sku: "TEE-CMB", qty: 3 }])).duplicate).toBe(true);
+    expect(productOf(d, "p4").stock).toBe(117);
+  });
+
+  it("unknown SKUs and missing stock go to a person instead of a guess", () => {
+    const d = fresh();
+    const out = applyPaymentEvent(d, pay("PAY-1002", [{ sku: "NOPE-1", qty: 1 }, { sku: "DRS-LIN", qty: 2 }, { sku: "TEE-CMB", qty: 1 }]));
+    expect(out).toMatchObject({ recorded: 1, held: 2 });
+    expect(d.alerts.find((a) => a.type === "PAYMENT" && a.open).poId).toBe("PAY-1002");
+    expect(() => applyAction(d, "u3", "resolvePayment", { alertId: d.alerts[0].id, note: "ok" })).toThrow(/Owner or a Manager/);
+    applyAction(d, "u2", "resolvePayment", { alertId: d.alerts[0].id, note: "Counted the shelf, recorded by hand" });
+    expect(d.alerts.some((a) => a.type === "PAYMENT" && a.open)).toBe(false);
+  });
+
+  it("a refund puts the stock back once", () => {
+    const d = fresh();
+    applyPaymentEvent(d, pay("PAY-1003", [{ sku: "TEE-CMB", qty: 4 }]));
+    applyPaymentEvent(d, pay("PAY-1003", [], "payment.refunded"));
+    expect(productOf(d, "p4").stock).toBe(120);
+    expect(liveTx(d).some((t) => t.reason.includes("PAY-1003"))).toBe(false);
+    expect(applyPaymentEvent(d, pay("PAY-1003", [], "payment.refunded")).duplicate).toBe(true);
+  });
+});
+
+describe("real date", () => {
+  it("moves the demo story to today, keeping every gap", () => {
+    vi.setSystemTime(new Date("2026-11-18T01:30:00Z")); // 09:30 in Malaysia
+    try {
+      const d = buildData("mixed"), now = nowStamp();
+      expect(now).toBe("2026-11-18 09:30");
+      expect(lateDays(poOf(d, "po1"))).toBe(10);
+      expect(d.settings.salesMonths.at(-1)).toBe("Nov");
+      expect([...d.tx, ...d.logs, ...d.alerts].every((x) => x.at <= now)).toBe(true);
+    } finally {
+      vi.setSystemTime(new Date("2026-10-23T04:00:00Z"));
+    }
   });
 });
