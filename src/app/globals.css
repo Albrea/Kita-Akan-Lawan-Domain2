@@ -46,7 +46,8 @@
   --seg5: #0d9488;
   --seg6: #db2777;
   --font:
-    Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    Inter, "Noto Sans Tamil", "Noto Sans SC", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --r: 10px;
   --r-sm: 8px;
@@ -103,12 +104,14 @@ h3 {
 /* ---------- Shell ---------- */
 .app {
   display: flex;
-  height: 100%;
+  height: 100vh;
+  height: 100dvh; /* full screen on phones too, where 100vh includes the browser bar */
 }
 .sidebar {
   width: 236px;
   flex: none;
   height: 100%;
+  overflow: hidden;
   background: var(--card);
   border-right: 1px solid var(--border);
   display: flex;
@@ -1026,6 +1029,16 @@ button.stat:hover {
   border-color: var(--ai-br);
   color: var(--ai-fg);
 }
+.notice.green {
+  background: var(--green-bg);
+  border-color: var(--green-br);
+  color: var(--green-fg);
+}
+.notice.red {
+  background: var(--red-bg);
+  border-color: var(--red-br);
+  color: var(--red-fg);
+}
 .notice svg {
   flex: none;
   margin-top: 1px;
@@ -1862,5 +1875,96 @@ table.mini td {
   }
   .send-bar .btn {
     width: 100%;
+  }
+}
+
+/* ---------- Final-round additions ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+/* The supplier order being received: outlined until it is saved. */
+.card.po-focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus);
+}
+.continue-bar {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.po-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+tr.undone td {
+  color: var(--text-3);
+}
+tr.undone td:not(:last-child) {
+  text-decoration: line-through;
+}
+.lang-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+  gap: 10px;
+}
+.lang-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--card);
+  text-align: left;
+  cursor: pointer;
+  font-size: 15px;
+}
+.lang-opt:hover {
+  background: var(--hover);
+}
+.lang-opt.on {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus);
+  color: var(--primary);
+}
+.lang-opt svg {
+  margin-left: auto;
+}
+.spin.sm {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  vertical-align: -2px;
+}
+/* While Gemini writes: the bar keeps moving, because there is no exact percentage to show. */
+.bar.indeterminate i {
+  width: 35% !important;
+  animation: bar-slide 1.4s ease-in-out infinite;
+}
+@keyframes bar-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar.indeterminate i {
+    animation: none;
+    width: 100% !important;
+    opacity: 0.5;
   }
 }
