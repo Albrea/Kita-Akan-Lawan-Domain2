@@ -53,32 +53,33 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 
 - **AI Restock planner:** buy / wait / don't-buy for every product, fitted to the budget, with reasons, profit, ROI and confidence.
 - **Show calculation and Accuracy check:** every number can be traced, and the forecast is backtested on the shop's own sales.
-- **Adaptive forecast settings (AI Restock → Forecast settings):** Gemini reads summary statistics of the shop's sales (never the raw records) and proposes settings for the forecast, such as how much to trust recent months vs the long-term trend and how much safety stock to keep. StockNow checks the values stay in safe ranges, tests them on past months, and shows the error before and after. Nothing changes until an Owner or Manager approves. In our demo shop the approved settings cut the forecast error from 9.5% to 5.1%.
+- **Adaptive forecast settings (AI Restock → Forecast settings):** Gemini reads summary statistics of the shop's sales (never the raw records) and proposes settings for the forecast, such as how much to trust recent months vs the long-term trend and how much safety stock to keep. Settings are shown and typed as plain percentages or days (for example "safety stock 20%", "overstock after 45 days"). StockNow checks the values stay in safe ranges, tests them on past months, and shows the error before and after. Nothing changes until an Owner or Manager approves. In our demo shop the approved settings cut the forecast error from 9.5% to 5.1%.
 - **Business profile (Settings → Business):** the business type (clothing, food & beverage, electronics, general retail) sets the starting forecast settings for shops with little sales history.
 - **Approval workflow:** Staff send, Owner/Manager approve per item. Nothing is ordered without a person.
 - **Supplier orders on WhatsApp:** one order per supplier, a message drafted by Gemini, chasing late deliveries, and receiving partial deliveries.
 - **Automatic stock out from Orbyte Payment:** when a customer pays through Orbyte Payment, StockNow records the stock out and the sale by itself. Unknown items or missing stock are handed to the Owner or a Manager to check, never guessed. Duplicates are ignored and refunds put the stock back (simulated in the demo; see [Orbyte Payment interface](#orbyte-payment-interface)).
 - **Automatic triggers:** a paid Orbyte order, a low-stock alert after a stock out, a monthly plan drafted on the plan day, and a daily late-delivery check.
-- **Undo for stock in and stock out:** adds an opposite entry instead of deleting, so the history and the activity log keep both. Staff can undo their own entries from today; the Owner or a Manager can undo any. Undoing a supplier delivery puts the quantity back on the order.
+- **Undo for stock in and stock out:** adds an opposite entry instead of deleting, so the history and the activity log keep both. Staff can undo their own entries until midnight of the same day; the Owner or a Manager can undo any (while the stock is still there). Undoing a manual purchase gives the budget back; undoing a supplier delivery puts the quantity back on the order and leaves the budget alone, because the order was counted when it was approved.
 - **Never lose your place on a delivery:** opening a supplier order (from the Dashboard, a pop-up or a PO code) takes you to it on Stock In and highlights it; quantities typed but not saved are marked, and a "Continue receiving" bar brings you back.
 - **Four languages:** English (default), Bahasa Melayu, Tamil and Chinese, chosen per device in Settings → Language.
 - **Real dates:** the app runs on today's date in Malaysia; the demo shop is moved to today when it is loaded, so "10 days late" or "lasts 3 days" stay true.
 - **Budget that adds up:** supplier orders and manual purchases use it; returns to a supplier refund it; customer returns reduce the day's sales.
 - **Roles:** Owner, Manager and Staff. Permissions are checked on the server, not only in the UI.
+- **Activity Log you can search and export:** filter by action, person and date range (Today, This month, or any dates), then export the matching entries as a CSV file that opens in Excel.
 - **Outage plan:** offline stock entry that syncs later, a backup copy, and paper/WhatsApp catch-up entry.
 - **Six demo scenarios:** mixed, growing, slow season, festive rush, viral product and overstocked, to show how the AI reacts.
 - **Responsive:** a sidebar on desktop, a drawer menu and stacked cards on phones. Making the system available on any type of devices.
 
 ### Tech Stack
 
-| Layer         | Technology                                                                                                            |
-| ------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Frontend      | Next.js 15 (React 19), JavaScript, plain CSS, lucide-react icons                                                      |
-| Backend       | Next.js API routes (Node.js); restock engine in plain JavaScript (`lib/engine.js`)                                    |
-| Database      | Supabase (PostgreSQL), with a built-in in-memory demo store when Supabase is not configured                           |
+| Layer         | Technology                                                                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend      | Next.js 15 (React 19), JavaScript, plain CSS, lucide-react icons                                                                                      |
+| Backend       | Next.js API routes (Node.js); restock engine in plain JavaScript (`lib/engine.js`)                                                                    |
+| Database      | Supabase (PostgreSQL), with a built-in in-memory demo store when Supabase is not configured                                                           |
 | AI            | Google Gemini API (`gemini-3.5-flash` by default, set with `GEMINI_MODEL`; busy → `gemini-3.5-flash-lite`) for wording only, with a template fallback |
-| Hosting / Dev | Replit                                                                                                                |
-| Tests         | Vitest                                                                                                                |
+| Hosting / Dev | Replit                                                                                                                                                |
+| Tests         | Vitest                                                                                                                                                |
 
 ---
 
@@ -241,7 +242,7 @@ The service_role key is only used on the server (API routes). The browser never 
 npm test
 ```
 
-48 tests cover the forecast and plan (for example: Hoodie needs 191, confidence 94%, the plan never goes over budget), the budget rules, approvals and permissions, offline mode, undo, Orbyte Payment (duplicates, unknown items, refunds), the move to today's date, adaptive forecast settings (safe ranges, approval, business-type defaults), Gemini (its text is used, a busy server is retried, invented numbers are rejected), and the Supabase storage path (against a fake client). The tests pin the clock to 23 Oct 2026, so their numbers never depend on the day they run.
+51 tests cover the forecast and plan (for example: Hoodie needs 191, confidence 94%, the plan never goes over budget), the budget rules, approvals and permissions, offline mode, undo, Orbyte Payment (duplicates, unknown items, refunds), the move to today's date, adaptive forecast settings (safe ranges, approval, business-type defaults), Gemini (its text is used, a busy server is retried, invented numbers are rejected), and the Supabase storage path (against a fake client). The tests pin the clock to 23 Oct 2026, so their numbers never depend on the day they run.
 
 ### Try the demo
 
@@ -262,16 +263,23 @@ There is no live Orbyte access in this challenge, so this is our interface assum
 **Endpoint:** `POST /api/orbyte/payment`, signed with the shared secret `ORBYTE_WEBHOOK_SECRET`. The header is `x-orbyte-signature: sha256=<hex HMAC-SHA256 of the raw body>`. Unsigned or wrongly signed requests get `401` and change nothing; without the secret the endpoint is off (`503`).
 
 ```json
-{ "event": "payment.succeeded", "paymentId": "PAY-1001", "channel": "in_store",
-  "items": [{ "sku": "TEE-CMB", "qty": 2 }, { "sku": "ACC-TOT", "qty": 1 }] }
+{
+  "event": "payment.succeeded",
+  "paymentId": "PAY-1001",
+  "channel": "in_store",
+  "items": [
+    { "sku": "TEE-CMB", "qty": 2 },
+    { "sku": "ACC-TOT", "qty": 1 }
+  ]
+}
 ```
 
-| Situation | What StockNow does |
-| --- | --- |
-| Every SKU known and in stock | One stock out per line (reason "Orbyte Payment PAY-1001"), added to today's sales, logged under **Orbyte Payment** |
+| Situation                                   | What StockNow does                                                                                                       |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Every SKU known and in stock                | One stock out per line (reason "Orbyte Payment PAY-1001"), added to today's sales, logged under **Orbyte Payment**       |
 | Unknown SKU, not enough stock, bad quantity | That line is **not** recorded. An alert asks the Owner or a Manager to check, with the reason; they close it with a note |
-| Same `paymentId` sent again | Ignored (`duplicate: true`), so retries are safe |
-| `"event": "payment.refunded"` | The items go back into stock and the sale is removed; a second refund is ignored |
+| Same `paymentId` sent again                 | Ignored (`duplicate: true`), so retries are safe                                                                         |
+| `"event": "payment.refunded"`               | The items go back into stock and the sale is removed; a second refund is ignored                                         |
 
 StockNow never moves money: it only reacts to the fact that a payment happened.
 
@@ -293,7 +301,7 @@ StockNow never moves money: it only reacts to the fact that a payment happened.
 
 **Gemini model.** The default is `gemini-3.5-flash`. Set `GEMINI_MODEL` to use another one. If the chosen model is overloaded, slow (12 s) or unavailable, StockNow automatically tries `gemini-3.5-flash`, then `gemini-3.5-flash-lite` (change the list with `GEMINI_FALLBACK_MODELS`). In our test on 31 Oct 2026, `gemini-3.8-flash` returned no text within 30 s and reported "high demand", while `gemini-3.5-flash` answered in 1–8 s and `gemini-3.5-flash-lite` in under 1 s. The label on each AI text shows, on hover, which model wrote it.
 
-**Check that Gemini works.** Open **Settings → AI (Gemini) → Test Gemini**. It makes one small call from the server and shows the model and the answer time, or Google's exact error (for example an invalid key or an unknown model). When Gemini writes a text, its label says **Written by Gemini**. If the built-in template is used instead, the label says why: *Gemini not set up* (no `GEMINI_API_KEY` on the server), *Gemini didn't answer* (error or timeout, after one retry), or *Gemini's numbers didn't match* (its reply used a number StockNow didn't calculate). After changing a key in Replit Secrets, redeploy so the server picks it up.
+**Check that Gemini works.** Open **Settings → AI (Gemini) → Test Gemini**. It makes one small call from the server and shows the model and the answer time, or Google's exact error (for example an invalid key or an unknown model). When Gemini writes a text, its label says **Written by Gemini**. If the built-in template is used instead, the label says why: _Gemini not set up_ (no `GEMINI_API_KEY` on the server), _Gemini didn't answer_ (error or timeout, after one retry), or _Gemini's numbers didn't match_ (its reply used a number StockNow didn't calculate). After changing a key in Replit Secrets, redeploy so the server picks it up.
 
 **The `.replit` file.** Replit reads it automatically; you don't run it yourself.
 
