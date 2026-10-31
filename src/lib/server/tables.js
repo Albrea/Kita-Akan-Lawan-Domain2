@@ -39,6 +39,7 @@ export const NEWEST_FIRST = new Set(["requests", "pos", "tx", "logs", "alerts"])
 
 export const SETTINGS_COLS = {
   business: "business_name", monthlyBudget: "monthly_budget", planDay: "plan_day", scenario: "scenario", poSeq: "po_seq", salesMonths: "sales_months",
+  businessType: "business_type", businessYears: "business_years", forecastConfig: "forecast_config",
 };
 
 const KEY = (c) => (c === "sales" ? "product_id" : "id");

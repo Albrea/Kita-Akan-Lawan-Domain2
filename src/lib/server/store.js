@@ -2,7 +2,7 @@
    Postgres; otherwise an in-memory demo store is used (resets when the server restarts).
    Every write runs inside one lock, so two people pressing buttons at once can't overwrite each other. */
 import { createClient } from "@supabase/supabase-js";
-import { applyAction, ActionError } from "../actions.js";
+import { applyAction, applyPaymentEvent, ActionError } from "../actions.js";
 import { buildData, DEFAULT_SCENARIO } from "../seed.js";
 import { clone, reviveInfinity, toJSON } from "../format.js";
 import { NEWEST_FIRST, SETTINGS_COLS, TABLES, fromRow, keyColumn, toRow } from "./tables.js";
@@ -118,5 +118,23 @@ export function runAction(actorId, type, payload) {
     }
     await s.save(prev, next);
     return { ok: true, result, data: next };
+  });
+}
+
+/* Same as runAction, for an event sent by Orbyte Payment instead of a person. */
+export function runPaymentEvent(event) {
+  return exclusive(async () => {
+    const s = store();
+    const prev = await s.load();
+    const next = clone(prev);
+    let result;
+    try {
+      result = applyPaymentEvent(next, event);
+    } catch (e) {
+      if (e instanceof ActionError) return { ok: false, error: e.message };
+      throw e;
+    }
+    await s.save(prev, next);
+    return { ok: true, result };
   });
 }

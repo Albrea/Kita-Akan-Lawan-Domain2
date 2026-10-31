@@ -4,11 +4,9 @@ export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
 export const HORIZON = "the next 30 days";
 export const SHOP_TZ = "Asia/Kuala_Lumpur";
 
-/* The synthetic demo shop (lib/seed.js) is written around 23 Oct 2026, so "today" is pinned there and the
-   dashboard, alerts and late deliveries line up with the data. For a real shop, change this to: () => shopNow().date */
-const DEMO_TODAY = "2026-10-23";
-
-function shopNow() {
+/* "Today" is the real date in Malaysia. The demo shop (lib/seed.js) is written around 23 Oct 2026 and
+   moved forward to now when it is built, so its alerts and late deliveries stay "N days ago". */
+export function shopNow() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: SHOP_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   }).formatToParts(new Date());
@@ -16,9 +14,9 @@ function shopNow() {
   return { date: `${v("year")}-${v("month")}-${v("day")}`, time: `${v("hour")}:${v("minute")}` };
 }
 
-export const today = () => DEMO_TODAY;
+export const today = () => shopNow().date;
 export const monthKey = () => today().slice(0, 7);
-export const nowStamp = () => `${today()} ${shopNow().time}`;
+export const nowStamp = () => { const n = shopNow(); return `${n.date} ${n.time}`; };
 
 export const rm = (n) => "RM " + Math.round(n).toLocaleString("en-MY");
 export const rm2 = (n) => "RM " + Number(n).toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -41,6 +39,17 @@ export const shortDate = (d) => fmtAt(d).replace(/ \d{4}$/, "");
 const DAY_MS = 86400000;
 export const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / DAY_MS);
 export const addDays = (d, n) => new Date(new Date(d + "T00:00:00Z").getTime() + n * DAY_MS).toISOString().slice(0, 10);
+/* Moves a "YYYY-MM-DD HH:MM" (or date-only) stamp by whole minutes; date-only stamps are read as noon. */
+const stampMs = (s) => new Date(s.replace(" ", "T") + (s.length === 10 ? "T12:00" : "") + ":00Z").getTime();
+export const minutesBetween = (a, b) => Math.round((stampMs(b) - stampMs(a)) / 60000);
+export const shiftStamp = (s, minutes) => {
+  const iso = new Date(stampMs(s) + minutes * 60000).toISOString();
+  return s.length === 10 ? iso.slice(0, 10) : `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
+};
+export const monthsEndingAt = (date, n) => {
+  const m = +date.slice(5, 7) - 1;
+  return Array.from({ length: n }, (_, i) => MONTHS[(((m - n + 1 + i) % 12) + 12) % 12]);
+};
 
 let seqCounter = 0;
 /* Monotonic ordering key for new rows: the newest row has the largest seq. */

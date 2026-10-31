@@ -3,8 +3,9 @@
    ("Show calculation") and tested. Gemini only rewrites the wording afterwards.
    ============================================================================ */
 import { daysText, list, monthKey, nowStamp, pct, plural, rm, rm2, today, daysBetween } from "./format.js";
+import { DEFAULT_FORECAST_CONFIG, configOf } from "./forecast.js";
 
-export const ENGINE = { sellWindow: 1.5, cautious: 0.7, overstockDays: 45, lowMargin: 0.25, safetyPct: 0.2 };
+export { configOf };
 
 /* ---------- selectors ---------- */
 export const productOf = (d, id) => d.products.find((p) => p.id === id);
@@ -13,8 +14,10 @@ export const catName = (d, id) => d.categories.find((c) => c.id === id)?.name ??
 export const supOf = (d, id) => d.suppliers.find((s) => s.id === id);
 export const supName = (d, id) => supOf(d, id)?.name ?? "No supplier";
 export const SYS_USER = { id: "sys", name: "StockNow AI", email: "", dept: "", role: null, leaveUntil: null, seq: 0 };
+/* Paid customer orders arriving from Orbyte Payment are recorded under this name. */
+export const ORBYTE_USER = { id: "orbyte", name: "Orbyte Payment", email: "", dept: "", role: "SYSTEM", leaveUntil: null, seq: 0 };
 export const userOf = (d, id) =>
-  id === "sys" ? SYS_USER : d.people.find((u) => u.id === id) ?? { id: id || "", name: "Unknown", email: "", dept: "", role: "STAFF", leaveUntil: null, seq: 0 };
+  id === "sys" ? SYS_USER : id === "orbyte" ? ORBYTE_USER : d.people.find((u) => u.id === id) ?? { id: id || "", name: "Unknown", email: "", dept: "", role: "STAFF", leaveUntil: null, seq: 0 };
 export const members = (d) => d.people.filter((u) => u.role);
 export const reqOf = (d, id) => d.requests.find((r) => r.id === id);
 export const poOf = (d, id) => d.pos.find((p) => p.id === id);
@@ -38,12 +41,24 @@ export const routeTo = (d) => {
 export const isCustomerReturn = (t) => t.type === "STOCK_IN" && t.reason === "Customer return";
 export const isManualBuy = (t) => t.type === "STOCK_IN" && !t.poId && !isCustomerReturn(t);
 export const isSupplierReturn = (t) => t.type === "STOCK_OUT" && t.reason === "Returned to supplier";
-export const isSale = (t) => t.type === "STOCK_OUT" && (t.reason === "Sold in store" || t.reason === "Online order");
+export const PAYMENT_REASON = "Orbyte Payment ";
+export const paymentRef = (t) => (t.reason.startsWith(PAYMENT_REASON) ? t.reason.slice(PAYMENT_REASON.length) : "");
+export const isSale = (t) => t.type === "STOCK_OUT" && (t.reason === "Sold in store" || t.reason === "Online order" || !!paymentRef(t));
 const costOf = (d, t) => t.qty * (productOf(d, t.pid)?.cost ?? 0);
+
+/* Undo never deletes: it adds an opposite movement whose reason is "UNDO:<id of the original>".
+   Both stay in the history and the activity log; totals skip the pair. */
+export const UNDO_PREFIX = "UNDO:";
+export const isReversal = (t) => t.reason.startsWith(UNDO_PREFIX);
+export const reversalOf = (d, t) => d.tx.find((x) => x.reason === UNDO_PREFIX + t.id);
+export function liveTx(d) {
+  const undone = new Set(d.tx.filter(isReversal).map((t) => t.reason.slice(UNDO_PREFIX.length)));
+  return d.tx.filter((t) => !isReversal(t) && !undone.has(t.id));
+}
 
 export function budgetParts(d) {
   const mk = monthKey();
-  const month = d.tx.filter((t) => t.at.startsWith(mk));
+  const month = liveTx(d).filter((t) => t.at.startsWith(mk));
   const orders = d.pos.filter((po) => po.at.startsWith(mk)).reduce((s, po) => s + poTotal(po), 0);
   const manual = month.filter(isManualBuy).reduce((s, t) => s + costOf(d, t), 0);
   const refunds = month.filter(isSupplierReturn).reduce((s, t) => s + costOf(d, t), 0);
@@ -54,7 +69,7 @@ export const spentThisMonth = (d) => {
   return Math.max(0, b.orders + b.manual - b.refunds);
 };
 export const budgetLeft = (d) => Math.max(0, d.settings.monthlyBudget - spentThisMonth(d));
-export const todayTx = (d) => d.tx.filter((t) => t.at.startsWith(today()));
+export const todayTx = (d) => liveTx(d).filter((t) => t.at.startsWith(today()));
 
 export function incomingOf(d, pid) {
   return openPOs(d).reduce((s, po) => s + po.items.filter((i) => i.pid === pid).reduce((a, i) => a + (i.qty - i.received), 0), 0);
@@ -62,15 +77,16 @@ export function incomingOf(d, pid) {
 
 /* ---------- forecasting ---------- */
 
-/* Forecast = 50% weighted moving average (3:2:1) + 50% linear trend. Keeps every step for "Show calculation". */
-export function forecastFrom(s) {
+/* Forecast = wmaWeight × weighted moving average (3:2:1) + trendWeight × linear trend (50/50 by default).
+   Keeps every step for "Show calculation". */
+export function forecastFrom(s, cfg = DEFAULT_FORECAST_CONFIG) {
   const n = s.length;
   const wma = (s[n - 1] * 3 + s[n - 2] * 2 + s[n - 3]) / 6;
   const xm = (n - 1) / 2, ym = s.reduce((a, b) => a + b, 0) / n;
   let nu = 0, de = 0;
   s.forEach((y, i) => { nu += (i - xm) * (y - ym); de += (i - xm) ** 2; });
   const slope = nu / de, lin = ym + slope * (n - xm);
-  const forecast = Math.max(0, Math.round(0.5 * wma + 0.5 * lin));
+  const forecast = Math.max(0, Math.round(cfg.wmaWeight * wma + cfg.trendWeight * lin));
   const fitted = s.map((_, i) => ym + slope * (i - xm));
   const rmse = Math.sqrt(s.reduce((a, y, i) => a + (y - fitted[i]) ** 2, 0) / n);
   const first3 = (s[0] + s[1] + s[2]) / 3, last3 = (s[n - 1] + s[n - 2] + s[n - 3]) / 3;
@@ -80,7 +96,7 @@ export function forecastFrom(s) {
 export function signals(d, p) {
   const s = salesOf(d, p.id);
   if (s.length < 3) return null;
-  const f = forecastFrom(s), forecast = f.forecast;
+  const f = forecastFrom(s, configOf(d)), forecast = f.forecast;
   const trend = f.trendPct > 0.03 ? "Rising" : f.trendPct < -0.03 ? "Falling" : "Stable";
   const daily = forecast / 30;
   const incoming = incomingOf(d, p.id);
@@ -92,16 +108,59 @@ export function signals(d, p) {
 }
 
 /* Accuracy check: hide the latest month, forecast it from the months before, compare with what really sold. */
-export function backtest(d) {
+export function backtest(d, cfg = configOf(d)) {
   return d.products.filter((p) => salesOf(d, p.id).length >= 4).map((p) => {
-    const s = salesOf(d, p.id), forecast = forecastFrom(s.slice(0, -1)).forecast, actual = s[s.length - 1];
+    const s = salesOf(d, p.id), forecast = forecastFrom(s.slice(0, -1), cfg).forecast, actual = s[s.length - 1];
     const diff = forecast - actual, err = actual ? Math.abs(diff) / actual : 0;
     return { p, forecast, actual, diff, err, verdict: err <= 0.1 ? "Accurate" : err <= 0.2 ? "Close" : "Off" };
   });
 }
 
+/* Rolling accuracy over every month that has 3+ months before it: forecast that month from the months before,
+   compare with what really sold. Also scores a simple "average of the last 3 months" guess as the baseline.
+   Error = average |forecast − actual| ÷ actual, skipping months with 0 sales. */
+export function backtestMulti(d, cfg = configOf(d)) {
+  const pts = [];
+  d.products.forEach((p) => {
+    const s = salesOf(d, p.id);
+    for (let k = 3; k < s.length; k++) {
+      if (!s[k]) continue;
+      const hist = s.slice(0, k), f = forecastFrom(hist, cfg).forecast, base = Math.round((hist[k - 1] + hist[k - 2] + hist[k - 3]) / 3);
+      pts.push({ pid: p.id, k, actual: s[k], f, base });
+    }
+  });
+  const err = (key) => (pts.length ? pts.reduce((a, x) => a + Math.abs(x[key] - x.actual) / x.actual, 0) / pts.length : 0);
+  return { error: err("f"), baseline: err("base"), tests: pts.length, months: Math.max(0, d.settings.salesMonths.length - 3) };
+}
+
+/* Backtest error for each allowed blend of weighted average vs trend line (current other settings kept). */
+export function blendErrors(d, cfg = configOf(d)) {
+  const out = {};
+  for (let w = 0.2; w <= 0.801; w += 0.1) { const k = round2(w); out[k] = round2(backtestMulti(d, { ...cfg, wmaWeight: k, trendWeight: round2(1 - k) }).error * 100); }
+  return out;
+}
+
+/* Derived numbers about the shop's sales: what Gemini sees instead of the raw records. */
+export function salesStats(d) {
+  const per = d.products.map((p) => {
+    const s = salesOf(d, p.id);
+    if (s.length < 3) return null;
+    const avg = s.reduce((a, b) => a + b, 0) / s.length, f = forecastFrom(s);
+    const cv = avg ? Math.sqrt(s.reduce((a, x) => a + (x - avg) ** 2, 0) / s.length) / avg : 0;
+    const first3 = (s[0] + s[1] + s[2]) / 3, jump = first3 ? s[s.length - 1] / first3 : 1;
+    return { product: p.short || p.name, avgMonthly: Math.round(avg), variability: round2(cv), trendPerMonth: round2(f.trendPct), lastVsEarlier: round2(jump), margin: round2(p.sell > 0 ? (p.sell - p.cost) / p.sell : 0) };
+  }).filter(Boolean);
+  const mean = (k) => (per.length ? round2(per.reduce((a, x) => a + x[k], 0) / per.length) : 0);
+  return {
+    businessType: d.settings.businessType || "clothing", monthsOfHistory: d.settings.salesMonths.length, products: per.length,
+    averageVariability: mean("variability"), averageTrendPerMonth: mean("trendPerMonth"), productsWithSuddenJump: per.filter((x) => x.lastVsEarlier >= 1.6).length,
+    backtestErrorPercentByWmaWeight: blendErrors(d), perProduct: per,
+  };
+}
+const round2 = (x) => Math.round(x * 100) / 100;
+
 function reasonsFor(d, p, g, plan) {
-  const s = g.series, m = Math.round(g.margin * 100), first = d.settings.salesMonths[0];
+  const ENGINE = configOf(d), s = g.series, m = Math.round(g.margin * 100), first = d.settings.salesMonths[0];
   const demand = g.growth > 0.1 ? `Demand up ${pct(g.growth)} since ${first} (${s[0]} → ${s[s.length - 1]} a month)`
     : g.growth < -0.1 ? `Demand down ${pct(-g.growth)} since ${first} (${s[0]} → ${s[s.length - 1]} a month)`
     : `Demand steady at about ${Math.round(s.reduce((a, b) => a + b, 0) / s.length)} a month`;
@@ -119,7 +178,7 @@ function reasonsFor(d, p, g, plan) {
     if (plan.kind === "margin") r.push(margin, demand, stock);
     if (plan.kind === "falling") r.push(demand, stock, "More stock would add holding cost while demand drops");
     if (plan.kind === "enough") r.push(stock, demand, g.incoming ? `${g.incoming} already on order cover the next month` : "Stock covers the forecast plus safety stock");
-    if (plan.kind === "loss") r.push("Would not sell enough within 45 days to make a profit", demand, stock);
+    if (plan.kind === "loss") r.push(`Would not sell enough within ${Math.round(30 * ENGINE.sellWindow)} days to make a profit`, demand, stock);
     if (plan.kind !== "margin" && g.margin < ENGINE.lowMargin) r.push(margin);
   }
   return [...new Set(r)].slice(0, 4);
@@ -127,7 +186,7 @@ function reasonsFor(d, p, g, plan) {
 
 /* budget may be Infinity: the "ideal plan" that shows how much money everything needs. */
 export function analyse(d, budget) {
-  const skipped = [];
+  const ENGINE = configOf(d), skipped = [];
   const items = d.products.map((p) => {
     const g = signals(d, p);
     if (!g) { skipped.push(p.name); return null; }

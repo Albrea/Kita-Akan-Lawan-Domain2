@@ -4,15 +4,18 @@
    copy and replays the queue when the connection is back.
    ============================================================================ */
 import {
-  budgetLeft, inPlan, lateDays, nameOfP, openPOs, planWith, poOf, productOf, reqOf, routeTo, sendBlock, signals, supName, supOf, userOf,
+  ORBYTE_USER, PAYMENT_REASON, UNDO_PREFIX, backtestMulti, budgetLeft, inPlan, isReversal, lateDays, liveTx, nameOfP, openPOs, planWith, poOf, productOf,
+  reqOf, reversalOf, routeTo, sendBlock, signals, supName, supOf, userOf,
 } from "./engine.js";
-import { addDays, daysText, digits, list, nextSeq, nowStamp, plural, rm, today, uid } from "./format.js";
+import { addDays, daysText, digits, fmtAt, list, nextSeq, nowStamp, plural, rm, today, uid } from "./format.js";
 import { SCENARIOS, buildData } from "./seed.js";
+import { BUSINESS_TYPES, configOf, validateConfig } from "./forecast.js";
 
 export const PERMS = {
   manageCatalog: ["OWNER", "MANAGER"],
   manageSuppliers: ["OWNER", "MANAGER"],
   setBudget: ["OWNER"],
+  forecastSettings: ["OWNER", "MANAGER"],
   approveAI: ["OWNER", "MANAGER"],
   manageAccess: ["OWNER"],
 };
@@ -54,12 +57,37 @@ function recordTx(d, c, { pid, type, qty, sup = "", reason = "", poId = null }) 
   return p;
 }
 
+/* Why a stock movement can't be undone by this person, or "" if it can. Shared by the screen and the server. */
+export function undoBlock(d, me, t) {
+  if (!t || isReversal(t)) return "This entry can't be undone.";
+  if (reversalOf(d, t)) return "This entry was already undone.";
+  if (t.pending) return "This entry is waiting to sync. Undo it when StockNow is back online.";
+  if (t.by === ORBYTE_USER.id) return "Orbyte payments are reversed by a refund in Orbyte, not by Undo.";
+  if (me.role === "STAFF" && (t.by !== me.id || !t.at.startsWith(today()))) return "Staff can undo only their own entries from today. Ask the Owner or a Manager.";
+  const p = productOf(d, t.pid);
+  if (!p) return "This product was deleted, so the entry can't be undone.";
+  if (t.type === "STOCK_IN" && p.stock < t.qty) return `Only ${p.stock} ${p.short || p.name} left, so ${t.qty} can't be taken back out. Some were already sold.`;
+  return "";
+}
+
+/* Adds the opposite movement. A received supplier order goes back to "still due". */
+function reverseTx(d, c, t) {
+  const p = recordTx(d, c, { pid: t.pid, type: t.type === "STOCK_IN" ? "STOCK_OUT" : "STOCK_IN", qty: t.qty, sup: t.sup, reason: UNDO_PREFIX + t.id });
+  const po = t.poId ? poOf(d, t.poId) : null;
+  const line = po?.items.find((i) => i.pid === t.pid);
+  if (line) {
+    line.received = Math.max(0, line.received - t.qty);
+    po.status = po.items.every((i) => i.received >= i.qty) ? "RECEIVED" : po.items.some((i) => i.received > 0) ? "PARTIAL" : "ORDERED";
+  }
+  return { p, po };
+}
+
 /* Automatic trigger: a stock out that leaves under 7 days of stock raises an alert and feeds the AI plan. */
-function lowCoverTrigger(d, c, p) {
+function lowCoverTrigger(d, c, p, cause = "a stock out") {
   const g = signals(d, p);
   if (!g || g.coverAll >= 7 || d.alerts.some((a) => a.open && a.type === "LOW" && a.pid === p.id)) return false;
   d.alerts.unshift({ id: uid("a"), at: c.at, type: "LOW", pid: p.id, poId: null, open: true, seq: nextSeq() });
-  c.log("AUTO_ALERT", `${p.name} now ${p.stock === 0 ? "is out of stock" : `lasts about ${daysText(g.cover)}`} (triggered by a stock out). Added to the AI plan.`, "sys");
+  c.log("AUTO_ALERT", `${p.name} now ${p.stock === 0 ? "is out of stock" : `lasts about ${daysText(g.cover)}`} (triggered by ${cause}). Added to the AI plan.`, "sys");
   return true;
 }
 
@@ -91,6 +119,17 @@ const handlers = {
     return { toast: alerted ? `Saved. ${p.name} is running low, so StockNow added it to the AI plan.${refund}` : `Stock out saved: ${p.name} is now ${p.stock}.${refund}` };
   },
 
+  undoTx(d, c, { txId }) {
+    const t = d.tx.find((x) => x.id === txId);
+    const block = undoBlock(d, c.me, t);
+    if (block) fail(block);
+    const { p, po } = reverseTx(d, c, t);
+    const what = t.type === "STOCK_IN" ? "stock in" : "stock out";
+    c.log("UNDO", `Undid ${what} of ${t.qty} × ${p.name} from ${fmtAt(t.at)} by ${userOf(d, t.by).name}.${po ? ` ${po.code} has ${t.qty} due again.` : ""} Stock now ${p.stock}.`);
+    if (t.type === "STOCK_IN") lowCoverTrigger(d, c, p, "an undo");
+    return { toast: `Undone: ${p.name} is back to ${p.stock}.` };
+  },
+
   receivePO(d, c, { poId, lines = {} }) {
     const po = poOf(d, poId);
     if (!po || po.status === "RECEIVED") fail("This order is already complete.");
@@ -105,6 +144,28 @@ const handlers = {
     const still = po.items.filter((i) => i.received < i.qty);
     c.log("STOCK_IN", `Received ${po.code} from ${supName(d, po.sup)}: ${real.map((l) => `${l.q} × ${nameOfP(d, l.it.pid)}`).join(", ")}.${still.length ? ` Still due: ${still.map((i) => `${i.qty - i.received} × ${nameOfP(d, i.pid)}`).join(", ")}.` : " Order complete."}`);
     return { toast: po.status === "RECEIVED" ? `${po.code} fully received. Stock updated.` : `${po.code} partly received. The rest stays on order.` };
+  },
+
+  /* --- Orbyte Payment (demo): the live product receives these from Orbyte at /api/orbyte/payment --- */
+  simulatePayment(d, c, { sku, qty, channel }) {
+    const paymentId = "SIM-" + uid("").toUpperCase().slice(0, 6);
+    return applyPaymentEvent(d, { event: "payment.succeeded", paymentId, channel, items: [{ sku, qty: Number(qty) }] }, { simulatedBy: c.me.name });
+  },
+
+  simulateRefund(d, c, { paymentId }) {
+    return applyPaymentEvent(d, { event: "payment.refunded", paymentId }, { simulatedBy: c.me.name });
+  },
+
+  /* A person has checked a payment StockNow could not match. */
+  resolvePayment(d, c, { alertId, note = "" }) {
+    c.need("approveAI", "Only the Owner or a Manager can close a payment check.");
+    const a = d.alerts.find((x) => x.id === alertId && x.type === "PAYMENT");
+    if (!a || !a.open) fail("This payment check is already closed.");
+    const why = String(note).trim();
+    if (!why) fieldFail({ note: "Write what you found, e.g. \"Counted 3 on the shelf, recorded by hand\"." });
+    a.open = false;
+    c.log("ORBYTE_CHECKED", `Closed the check on Orbyte Payment ${a.poId}: ${why.slice(0, 300)}`);
+    return { toast: `Payment ${a.poId} marked as checked` };
   },
 
   /* --- AI plan --- */
@@ -262,6 +323,41 @@ const handlers = {
     return { toast: `Monthly budget set to ${rm(v)}` };
   },
 
+  /* --- Business profile and forecast settings (Owner/Manager). Nothing changes without a person approving. --- */
+  setBusinessProfile(d, c, { businessType, businessYears }) {
+    c.need("forecastSettings", "Only the Owner or a Manager can change the business profile.");
+    if (!BUSINESS_TYPES[businessType]) fieldFail({ businessType: "Choose a business type." });
+    const y = businessYears === "" || businessYears === undefined ? null : +businessYears;
+    if (y !== null && !(y >= 0 && y <= 100)) fieldFail({ businessYears: "Enter 0 to 100 years." });
+    const old = d.settings.businessType;
+    d.settings.businessType = businessType;
+    d.settings.businessYears = y;
+    c.log("SETTINGS_UPDATED", `Business profile: ${BUSINESS_TYPES[businessType].label}${y !== null ? `, ${plural(y, "year")} in business` : ""}.${old !== businessType && !d.settings.forecastConfig ? " Forecast settings follow this type's defaults." : ""}`);
+    return { toast: "Business profile saved" };
+  },
+
+  /* Approves forecast settings (Gemini's proposal or a person's edit). They are validated and backtested again here. */
+  applyForecastConfig(d, c, { values, source = "manual", explanation = "", model = "" }) {
+    c.need("forecastSettings", "Only the Owner or a Manager can approve forecast settings.");
+    const v = validateConfig(values);
+    if (!v.ok) fail(`These settings can't be used: ${v.errors.join(" ")}`);
+    const before = backtestMulti(d), next = { ...configOf(d), ...v.values }, after = backtestMulti(d, next);
+    d.settings.forecastConfig = {
+      values: next, source: source === "ai" ? "ai" : "manual", explanation: String(explanation).slice(0, 600), model: String(model).slice(0, 60),
+      approvedBy: c.me.id, at: c.at, backtest: { before: before.error, after: after.error, baseline: after.baseline, tests: after.tests },
+    };
+    const pc = (x) => `${(x * 100).toFixed(1)}%`;
+    c.log("FORECAST_CONFIG", `Approved ${source === "ai" ? `AI-assisted (${model || "Gemini"})` : "manually adjusted"} forecast settings: ${Object.entries(v.values).map(([k, x]) => `${k} ${x}`).join(", ")}. Backtest error ${pc(before.error)} → ${pc(after.error)} (simple average ${pc(after.baseline)}).`);
+    return { toast: "Forecast settings approved. New plans use them." };
+  },
+
+  resetForecastConfig(d, c) {
+    c.need("forecastSettings", "Only the Owner or a Manager can change forecast settings.");
+    d.settings.forecastConfig = null;
+    c.log("FORECAST_CONFIG", `Forecast settings reset to the ${BUSINESS_TYPES[d.settings.businessType]?.label || "default"} defaults.`);
+    return { toast: "Back to the default forecast settings" };
+  },
+
   /* --- Access: people come from Orbyte Directory; the Owner gives StockNow access --- */
   grantAccess(d, c, { pid, role }) {
     c.need("manageAccess", "Only the Owner manages access.");
@@ -369,6 +465,70 @@ function finalize(d, c, req, ok, no, note) {
   return ok.length
     ? { toast: `${req.code} approved`, requestId: req.id, posCreated: req.poIds }
     : { toast: `${req.code} rejected. ${userOf(d, req.by).name} can see your reason.`, bad: true };
+}
+
+/* ============================================================================
+   ORBYTE PAYMENT: a paid customer order arrives as an event and becomes a stock out
+   with no typing. Anything StockNow can't match is handed to a person, never guessed.
+   Event: { event: "payment.succeeded" | "payment.refunded", paymentId, channel: "in_store" | "online",
+            items: [{ sku, qty }] }. See README → "Orbyte Payment interface".
+   ============================================================================ */
+const PAY_ID = /^[A-Za-z0-9_-]{3,64}$/;
+
+function systemCtx(d) {
+  const at = nowStamp();
+  const log = (action, text, by = ORBYTE_USER.id) => d.logs.unshift({ id: uid("l"), at, by, action, text, seq: nextSeq() });
+  return { me: ORBYTE_USER, at, log, need: () => fail("Not allowed."), offline: false };
+}
+
+export function applyPaymentEvent(d, ev = {}, { simulatedBy = "" } = {}) {
+  const c = systemCtx(d), id = String(ev.paymentId || "").trim();
+  if (!PAY_ID.test(id)) fail("paymentId is missing or invalid (3–64 letters, digits, - or _).");
+  const ref = PAYMENT_REASON + id, by = simulatedBy ? ` Simulated by ${simulatedBy}.` : "";
+  if (ev.event === "payment.refunded") return refundPayment(d, c, id, ref, by);
+  if (ev.event && ev.event !== "payment.succeeded") fail(`Unknown event: ${ev.event}`);
+  if (d.tx.some((t) => t.reason === ref) || d.alerts.some((a) => a.type === "PAYMENT" && a.poId === id)) {
+    return { duplicate: true, toast: `Payment ${id} was already recorded, so it was ignored.` };
+  }
+  const items = Array.isArray(ev.items) ? ev.items : [];
+  if (!items.length || items.length > 50) fail("A payment needs 1 to 50 items.");
+  const where = ev.channel === "online" ? "online" : "in store";
+  const ok = [], held = [], left = {};
+  items.forEach((it) => {
+    const sku = String(it?.sku || "").trim().toUpperCase(), q = Number(it?.qty);
+    const p = d.products.find((x) => x.sku.toUpperCase() === sku);
+    if (!Number.isInteger(q) || q < 1 || q > 10000) return held.push({ sku, q: it?.qty, why: "quantity is not a whole number from 1 to 10,000" });
+    if (!p) return held.push({ sku, q, why: "this SKU is not in StockNow" });
+    const avail = left[p.id] ?? p.stock;
+    if (q > avail) return held.push({ sku, q, p, why: `only ${avail} in stock` });
+    left[p.id] = avail - q;
+    ok.push({ p, q });
+  });
+  ok.forEach((o) => recordTx(d, c, { pid: o.p.id, type: "STOCK_OUT", qty: o.q, reason: ref }));
+  if (ok.length) {
+    const total = ok.reduce((s, o) => s + o.q * o.p.sell, 0);
+    c.log("ORBYTE_SALE", `Orbyte Payment ${id} (${where}): ${list(ok.map((o) => `${o.q} × ${o.p.name}`))}, ${rm(total)}. Stock out recorded automatically.${by}`);
+    ok.forEach((o) => lowCoverTrigger(d, c, o.p, "an Orbyte payment"));
+  }
+  if (held.length) {
+    d.alerts.unshift({ id: uid("a"), at: c.at, type: "PAYMENT", pid: held[0].p?.id ?? null, poId: id, open: true, seq: nextSeq() });
+    c.log("ORBYTE_CHECK", `Orbyte Payment ${id}: not recorded, a person needs to check ${list(held.map((h) => `${h.sku || "(no SKU)"} × ${h.q} (${h.why})`))}. Count the shelf, then record it by hand or ask Orbyte to refund.${by}`);
+  }
+  const toast = held.length
+    ? `${ok.length ? `Recorded ${plural(ok.length, "item")}. ` : ""}${plural(held.length, "item")} need${held.length === 1 ? "s" : ""} a person to check (see Dashboard).`
+    : `Orbyte payment ${id}: stock out recorded for ${plural(ok.length, "item")}.`;
+  return { paymentId: id, recorded: ok.length, held: held.length, toast, bad: !!held.length };
+}
+
+function refundPayment(d, c, id, ref, by) {
+  const sold = liveTx(d).filter((t) => t.reason === ref);
+  if (!sold.length) {
+    if (d.tx.some((t) => t.reason === ref)) return { duplicate: true, toast: `Payment ${id} was already refunded, so it was ignored.` };
+    fail(`No recorded sale for payment ${id}.`);
+  }
+  sold.forEach((t) => reverseTx(d, c, t));
+  c.log("ORBYTE_REFUND", `Orbyte Payment ${id} refunded: ${list(sold.map((t) => `${t.qty} × ${nameOfP(d, t.pid)}`))} back in stock.${by}`);
+  return { paymentId: id, refunded: sold.length, toast: `Refund of ${id}: ${plural(sold.length, "item")} back in stock.` };
 }
 
 /* Runs one action on `d` (mutating it). Throws ActionError when it is not allowed or invalid. */

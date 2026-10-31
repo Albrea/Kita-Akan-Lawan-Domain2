@@ -1,7 +1,10 @@
 /* Synthetic demo data: one small clothing shop and six different 6-month sales stories.
-   No real people, suppliers or phone numbers. */
+   No real people, suppliers or phone numbers. The story is written as if it were noon on 23 Oct 2026
+   (STORY_NOW) and moved forward to the real time when it is built, so every gap stays the same. */
 import { budgetLeft, signals } from "./engine.js";
-import { daysText, rm } from "./format.js";
+import { daysText, minutesBetween, monthsEndingAt, nowStamp, rm, shiftStamp } from "./format.js";
+
+const STORY_NOW = "2026-10-23 12:00";
 
 export const PEOPLE = [
   { id: "u1", name: "John Tan", email: "owner@demo.com", dept: "Management", role: "OWNER" },
@@ -137,12 +140,21 @@ function txLogText(t) {
 const ordered = (rows) => rows.map((r, i) => ({ ...r, seq: i + 1 }));
 const newestFirst = (rows) => rows.map((r, i) => ({ ...r, seq: rows.length - i }));
 
+/* Moves every date in the shop by the same number of minutes. */
+function shiftDates(d, minutes) {
+  const mv = (s) => (s ? shiftStamp(s, minutes) : s);
+  [...d.tx, ...d.logs, ...d.alerts].forEach((x) => { x.at = mv(x.at); });
+  d.requests.forEach((r) => { r.at = mv(r.at); r.decidedAt = mv(r.decidedAt); });
+  d.pos.forEach((po) => { po.at = mv(po.at); po.expectedAt = mv(po.expectedAt); po.sentAt = mv(po.sentAt); po.chasedAt = mv(po.chasedAt); });
+}
+
 /* Builds the whole shop for one scenario. Yesterday's and today's movements are worked out backwards
    from the scenario's current stock, so every "stock before / after" matches. */
 export function buildData(key = DEFAULT_SCENARIO) {
   const sc = SCENARIOS[key] || SCENARIOS[DEFAULT_SCENARIO];
+  const now = nowStamp(), day = +now.slice(8, 10);
   const d = {
-    settings: { business: "Orbyte Demo Fashion Store", monthlyBudget: 20000, planDay: 23, scenario: SCENARIOS[key] ? key : DEFAULT_SCENARIO, poSeq: 32, salesMonths: ["May", "Jun", "Jul", "Aug", "Sep", "Oct"] },
+    settings: { business: "Orbyte Demo Fashion Store", monthlyBudget: 20000, planDay: Math.min(day, 28), businessType: "clothing", businessYears: 3, forecastConfig: null, scenario: SCENARIOS[key] ? key : DEFAULT_SCENARIO, poSeq: 32, salesMonths: monthsEndingAt(now, 6) },
     people: ordered(PEOPLE.map((u) => ({ ...u, leaveUntil: null }))),
     suppliers: ordered(SUPPLIERS),
     categories: ordered(CATEGORIES),
@@ -167,7 +179,8 @@ export function buildData(key = DEFAULT_SCENARIO) {
   const logs = HISTORY_LOGS.map((l) => ({ ...l }));
   [...d.tx].reverse().forEach((t) => logs.push(L(t.at, t.by, t.type, txLogText(t))));
   logs.push(L("2026-10-23 07:00", "sys", "AUTO_ALERT", "Daily delivery check: PO-0031 from Johor Apparel Supply is 10 days late."));
-  logs.push(L("2026-10-23 08:00", "sys", "AUTO_PLAN", `Monthly schedule: AI drafted a restock plan from the ${rm(budgetLeft(d))} budget left this month.`));
+  const plan = L("2026-10-23 08:00", "sys", "AUTO_PLAN", "");
+  logs.push(plan);
   const alerts = [{ id: "a-plan", at: "2026-10-23 08:00", type: "PLAN", pid: null, poId: null, open: true }];
   d.products.forEach((x) => {
     const g = signals(d, x);
@@ -180,5 +193,8 @@ export function buildData(key = DEFAULT_SCENARIO) {
   d.alerts = newestFirst(alerts.sort((a, b) => b.at.localeCompare(a.at)));
   const sorted = logs.map((l, k) => ({ ...l, k })).sort((a, b) => a.at.localeCompare(b.at) || a.k - b.k).reverse();
   d.logs = newestFirst(sorted.map(({ k, ...l }, i) => ({ id: "l" + String(sorted.length - i).padStart(3, "0"), ...l })));
+  shiftDates(d, minutesBetween(STORY_NOW, now));
+  d.logs.find((l) => l.action === "AUTO_PLAN").text =
+    `${day === d.settings.planDay ? "Monthly schedule: " : ""}AI drafted a restock plan from the ${rm(budgetLeft(d))} budget left this month.`;
   return d;
 }
