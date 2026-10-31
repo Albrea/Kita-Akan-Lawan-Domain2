@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildData, SCENARIOS } from "../src/lib/seed.js";
-import { analyse, backtest, budgetLeft, forecastFrom, planWith, overridesOf, inPlan } from "../src/lib/engine.js";
+import { analyse, backtest, budgetLeft, forecastFrom, planWith, overridesOf, inPlan, spendBySupplier, spentThisMonth } from "../src/lib/engine.js";
 import { numbersMatch } from "../src/lib/server/gemini.js";
 
 describe("forecast", () => {
@@ -75,5 +75,14 @@ describe("Gemini number guard", () => {
   });
   it("rejects a reply with an invented number", () => {
     expect(numbersMatch("Expected profit RM 20,000.", "Expected profit RM 17,124")).toBe(false);
+  });
+});
+
+describe("finance charts", () => {
+  it("purchases per supplier, minus returns, add up to what this month's budget has used", () => {
+    const d = buildData("mixed");
+    const { slices, returned } = spendBySupplier(d);
+    expect(slices.reduce((a, x) => a + x.value, 0) - returned).toBe(spentThisMonth(d));
+    expect(slices.length).toBeGreaterThan(1);
   });
 });
