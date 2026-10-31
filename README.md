@@ -40,7 +40,7 @@ Small shops keep stock, sales and purchasing in separate places: a notebook, a s
 
 ### Solution
 
-StockNow keeps stock in, stock out, suppliers and the monthly purchase budget in one place. Its **AI Restock planner** then:
+StockNow keeps stock in, stock out, suppliers and the monthly purchase budget in one place. Its **Smart Restock planner** then:
 
 1. **Forecasts** each product's sales for the next 30 days from 6 months of history (a weighted moving average blended with a trend line).
 2. **Works out** how many to buy (forecast + safety stock − stock on hand − stock already on order), checks margin and overstock, and **fits the plan into the budget** by urgency and profit.
@@ -51,10 +51,9 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 
 ### Key Features
 
-- **AI Restock planner:** buy / wait / don't-buy for every product, fitted to the budget, with reasons, profit, ROI and confidence.
+- **Smart Restock planner:** buy / wait / don't-buy for every product, fitted to the budget, with reasons, profit, ROI and confidence.
 - **Show calculation and Accuracy check:** every number can be traced, and the forecast is backtested on the shop's own sales.
-- **Adaptive forecast settings (AI Restock → Forecast settings):** Gemini reads summary statistics of the shop's sales (never the raw records) and proposes settings for the forecast, such as how much to trust recent months vs the long-term trend and how much safety stock to keep. Settings are shown and typed as plain percentages or days (for example "safety stock 20%", "overstock after 45 days"). StockNow checks the values stay in safe ranges, tests them on past months, and shows the error before and after. Nothing changes until an Owner or Manager approves. In our demo shop the approved settings cut the forecast error from 9.5% to 5.1%.
-- **Business profile (Settings → Business):** the business type (clothing, food & beverage, electronics, general retail) sets the starting forecast settings for shops with little sales history.
+- **Adaptive forecast settings (Smart Restock → Forecast settings):** Gemini reads summary statistics of the shop's sales (never the raw records) and proposes settings for the forecast, such as how much to trust recent months vs the long-term trend and how much safety stock to keep. Settings are shown and typed as plain percentages or days (for example "safety stock 20%", "overstock after 45 days"). StockNow checks the values stay in safe ranges, tests them on past months, and shows the error before and after. Nothing changes until an Owner or Manager approves. In our demo shop the approved settings cut the forecast error from 9.5% to 5.1%.
 - **Approval workflow:** Staff send, Owner/Manager approve per item. Nothing is ordered without a person.
 - **Supplier orders on WhatsApp:** one order per supplier, a message drafted by Gemini, chasing late deliveries, and receiving partial deliveries.
 - **Automatic stock out from Orbyte Payment:** when a customer pays through Orbyte Payment, StockNow records the stock out and the sale by itself. Unknown items or missing stock are handed to the Owner or a Manager to check, never guessed. Duplicates are ignored and refunds put the stock back (simulated in the demo; see [Orbyte Payment interface](#orbyte-payment-interface)).
@@ -64,8 +63,11 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 - **Four languages:** English (default), Bahasa Melayu, Tamil and Chinese, chosen per device in Settings → Language.
 - **Real dates:** the app runs on today's date in Malaysia; the demo shop is moved to today when it is loaded, so "10 days late" or "lasts 3 days" stay true.
 - **Budget that adds up:** supplier orders and manual purchases use it; returns to a supplier refund it; customer returns reduce the day's sales.
-- **Roles:** Owner, Manager and Staff. Permissions are checked on the server, not only in the UI.
-- **Activity Log you can search and export:** filter by action, person and date range (Today, This month, or any dates), then export the matching entries as a CSV file that opens in Excel.
+- **Roles and departments:** Owner, Manager, and Staff in one of two departments. Inventory staff record stock, receive deliveries and send restock plans; Finance staff only see sales, the budget, supplier orders, approvals and the activity log, and can't change stock. Each person only sees the pages and to-dos for their job. Permissions are checked on the server, not only in the UI.
+- **Plain words on screen:** the app calls the planner "Smart Restock" and never says "AI" to shop staff; Gemini is named once, in Settings → Smart features (Owner and Manager only), next to the setup and test button.
+- **Activity Log you can search and export:** every stock movement shows SKU, product, stock before / change / after, activity, source (supplier order, manual purchase, sold in store, online order, Orbyte Payment…) and user; other actions (plans, approvals, alerts) are listed alongside. Filter by date range, activity, source and user, search by SKU or product, and export the matching rows as a CSV file that opens in Excel.
+- **Finance charts:** Finance staff see two pie charts on their dashboard: last month's sales by product, and the money sitting in stock by category.
+- **Show calculation with a chart:** the forecast step has a line chart of sales per month, the trend line and next month's forecast.
 - **Outage plan:** offline stock entry that syncs later, a backup copy, and paper/WhatsApp catch-up entry.
 - **Six demo scenarios:** mixed, growing, slow season, festive rush, viral product and overstocked, to show how the AI reacts.
 - **Responsive:** a sidebar on desktop, a drawer menu and stacked cards on phones. Making the system available on any type of devices.
@@ -89,7 +91,7 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 .
 ├── docs                                               # README images
 │   ├── screenshots                                    # App screenshots used in the README
-│   │   ├── desktop-ai-restock.png                     # AI Restock plan on desktop
+│   │   ├── desktop-ai-restock.png                     # Smart Restock plan on desktop
 │   │   └── desktop-dashboard.png                      # Dashboard on desktop
 │   └── architecture.png                               # System architecture diagram
 ├── src                                                # All app source code
@@ -100,7 +102,7 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 │   │   │   ├── ai                                     # Gemini endpoints (wording only, never numbers)
 │   │   │   │   ├── message                            # Supplier WhatsApp message
 │   │   │   │   │   └── route.js                       # Gemini rewords the order message (template fallback)
-│   │   │   │   ├── configure                          # AI Restock → Forecast settings
+│   │   │   │   ├── configure                          # Smart Restock → Forecast settings
 │   │   │   │   │   └── route.js                       # Gemini proposes settings; checked + backtested
 │   │   │   │   ├── status                             # Settings → AI: test that Gemini answers
 │   │   │   │   │   └── route.js                       # One small Gemini call; reports model and result
@@ -118,7 +120,7 @@ The numbers come from StockNow's own engine, so they are repeatable and testable
 │   ├── components                                     # React UI (client side)
 │   │   ├── pages                                      # One file per sidebar page
 │   │   │   ├── ActivityLog.jsx                        # History of every action by people and AI
-│   │   │   ├── AiRestock.jsx                          # AI Restock Planner, accuracy check (main feature)
+│   │   │   ├── AiRestock.jsx                          # Smart Restock planner, accuracy check (main feature)
 │   │   │   ├── Approvals.jsx                          # Owner approves plans, creates supplier orders
 │   │   │   ├── Dashboard.jsx                          # Alerts, budget left, stock overview
 │   │   │   ├── Products.jsx                           # Product list, stock levels, sales trend
@@ -242,7 +244,7 @@ The service_role key is only used on the server (API routes). The browser never 
 npm test
 ```
 
-51 tests cover the forecast and plan (for example: Hoodie needs 191, confidence 94%, the plan never goes over budget), the budget rules, approvals and permissions, offline mode, undo, Orbyte Payment (duplicates, unknown items, refunds), the move to today's date, adaptive forecast settings (safe ranges, approval, business-type defaults), Gemini (its text is used, a busy server is retried, invented numbers are rejected), and the Supabase storage path (against a fake client). The tests pin the clock to 23 Oct 2026, so their numbers never depend on the day they run.
+54 tests cover the forecast and plan (for example: Hoodie needs 191, confidence 94%, the plan never goes over budget), the budget rules, approvals and permissions, offline mode, undo, Orbyte Payment (duplicates, unknown items, refunds), the move to today's date, adaptive forecast settings (safe ranges, approval, business-type defaults), Gemini (its text is used, a busy server is retried, invented numbers are rejected), and the Supabase storage path (against a fake client). The tests pin the clock to 23 Oct 2026, so their numbers never depend on the day they run.
 
 ### Try the demo
 
@@ -251,7 +253,7 @@ There is no login page. Use the **account switcher** at the bottom of the sideba
 1. As **David Lee (Staff)**: Dashboard → **Plan restock with AI** → review the plan → **Send to Approval**.
 2. Switch to **John Tan (Owner)**: Approvals → **Approve & create orders** → **Send order** → **Open in WhatsApp**.
 3. Stock In → Supplier orders → **Receive stock** when it "arrives".
-4. AI Restock → **Accuracy check**, or change **Demo data** to see the AI react to a festive rush or an overstocked shop.
+4. Smart Restock → **Accuracy check**, or change **Demo data** to see the AI react to a festive rush or an overstocked shop.
 5. Stock Out → **Simulate a customer payment**: the stock out is recorded by Orbyte Payment. Choose "An item StockNow doesn't know" to see it handed to the Owner on the Dashboard.
 6. Stock In or Stock Out → **Undo** on a recent entry, then open the Activity Log.
 7. Settings → **Language** → Bahasa Melayu, Tamil or Chinese.
